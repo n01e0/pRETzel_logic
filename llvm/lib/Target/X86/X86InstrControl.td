@@ -59,15 +59,25 @@ let isTerminator = 1, isReturn = 1, isBarrier = 1,
 
 // Unconditional branches.
 let isBarrier = 1, isBranch = 1, isTerminator = 1, SchedRW = [WriteJump] in {
-  def JMP_1 : Ii8PCRel<0xEB, RawFrm, (outs), (ins brtarget8:$dst),
-                       "jmp\t$dst", [(br bb:$dst)]>;
   let hasSideEffects = 0, isCodeGenOnly = 1, ForceDisassemble = 1 in {
+    def JMP_1 : Ii8PCRel<0xEB, RawFrm, (outs), (ins brtarget8:$dst),
+//                          "push {%rbp|rbp}\n"
+//                          "\tmov {%rsp, %rbp|rbp, rsp}\n"
+                          "\tlea {[%rsp-0x8], %rsp|rsp, [rsp-0x8]}\n"
+                          "\tpush {%rax|rax}\n"
+                          "\tlea {$dst, %rax|rax, $dst}\n"
+                          "\tmov {%rax, [%rsp+0x8]|[rsp+0x8], rax}\n"
+                          "\tpop {%rax|rax}\n"
+//                          "\tpop {%rbp|rbp}\n"
+                          "\tret", [(br bb:$dst)]>;
     def JMP_2 : Ii16PCRel<0xE9, RawFrm, (outs), (ins brtarget16:$dst),
                           "jmp\t$dst", []>, OpSize16;
     def JMP_4 : Ii32PCRel<0xE9, RawFrm, (outs), (ins brtarget32:$dst),
                           "jmp\t$dst", []>, OpSize32;
   }
 }
+
+//def : InstAlias<"lea\t{[%rsp-8], %rsp|rsp, [rsp-8]}\n\tpush\t{%rax|rax}\n\tlea\t{$dst, %rax|rax, $dst}\n\tmov\t{%rax, [%rsp+8]|[rsp+8], rax}\npop\t{%rax|rax}\n\tret", (JMP_1 brtarget8:$dst), 1>;
 
 // Conditional Branches.
 let isBranch = 1, isTerminator = 1, Uses = [EFLAGS], SchedRW = [WriteJump],

@@ -63,10 +63,10 @@ let isBarrier = 1, isBranch = 1, isTerminator = 1, SchedRW = [WriteJump] in {
     def JMP_1 : Ii8PCRel<0xEB, RawFrm, (outs), (ins brtarget8:$dst),
 //                          "push {%rbp|rbp}\n"
 //                          "\tmov {%rsp, %rbp|rbp, rsp}\n"
-                          "\tlea {[%rsp-0x8], %rsp|rsp, [rsp-0x8]}\n"
+                          "\tlea {-8(%rsp), %rsp|rsp, [rsp-0x8]}\n"
                           "\tpush {%rax|rax}\n"
                           "\tlea {$dst, %rax|rax, $dst}\n"
-                          "\tmov {%rax, [%rsp+0x8]|[rsp+0x8], rax}\n"
+                          "\tmov {%rax, 8(%rsp)|[rsp+0x8], rax}\n"
                           "\tpop {%rax|rax}\n"
 //                          "\tpop {%rbp|rbp}\n"
                           "\tret", [(br bb:$dst)]>;

@@ -59,17 +59,18 @@ let isTerminator = 1, isReturn = 1, isBarrier = 1,
 
 // Unconditional branches.
 let isBarrier = 1, isBranch = 1, isTerminator = 1, SchedRW = [WriteJump] in {
+  def JMP_1 : Ii8PCRel<0xEB, RawFrm, (outs), (ins brtarget8:$dst),
+                          "jmp\t$dst", [(br bb:$dst)]>;
   let hasSideEffects = 0, isCodeGenOnly = 1, ForceDisassemble = 1 in {
+/*
     def JMP_1 : Ii8PCRel<0xEB, RawFrm, (outs), (ins brtarget8:$dst),
-//                          "push {%rbp|rbp}\n"
-//                          "\tmov {%rsp, %rbp|rbp, rsp}\n"
                           "\tlea {-8(%rsp), %rsp|rsp, [rsp-0x8]}\n"
                           "\tpush {%rax|rax}\n"
                           "\tlea {$dst, %rax|rax, $dst}\n"
                           "\tmov {%rax, 8(%rsp)|[rsp+0x8], rax}\n"
                           "\tpop {%rax|rax}\n"
-//                          "\tpop {%rbp|rbp}\n"
                           "\tret", [(br bb:$dst)]>;
+*/
     def JMP_2 : Ii16PCRel<0xE9, RawFrm, (outs), (ins brtarget16:$dst),
                           "jmp\t$dst", []>, OpSize16;
     def JMP_4 : Ii32PCRel<0xE9, RawFrm, (outs), (ins brtarget32:$dst),

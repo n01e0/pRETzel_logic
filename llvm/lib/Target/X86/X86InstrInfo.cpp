@@ -3258,7 +3258,56 @@ unsigned X86InstrInfo::insertBranch(MachineBasicBlock &MBB,
   if (Cond.empty()) {
     // Unconditional branch?
     assert(!FBB && "Unconditional branch with multiple successors!");
-    BuildMI(&MBB, DL, get(X86::JMP_1)).addMBB(TBB);
+    // build ROP
+    if (Subtarget.is64Bit()) {
+        // sub rsp, 8
+        BuildMI(&MBB, DL, get(X86::SUB64ri8), X86::RSP)
+            .addReg(X86::RSP)
+            .addImm(8);
+        // push rax
+        BuildMI(&MBB, DL, get(X86::PUSH64r))
+            .addReg(X86::RAX);
+        // lea rax, :dst
+        BuildMI(&MBB, DL, get(X86::LEA64r), X86::RAX)
+            .addReg(0)
+            .addImm(1)
+            .addReg(0)
+            .addMBB(TBB)
+            .addReg(0);
+        // mov [rsp+8], rax
+        addRegOffset(BuildMI(&MBB, DL, get(X86::MOV64mr)), X86::RSP, true, 8)
+            .addReg(X86::RAX);
+        // pop rax
+        BuildMI(&MBB, DL, get(X86::POP64r))
+            .addReg(X86::RAX);
+        // ret
+        BuildMI(&MBB, DL, get(X86::RETQ));
+    } else {
+        // sub esp, 4
+        BuildMI(&MBB, DL, get(X86::SUB32ri8), X86::ESP)
+            .addReg(X86::ESP)
+            .addImm(4);
+        // push eax
+        BuildMI(&MBB, DL, get(X86::PUSH32r))
+            .addReg(X86::EAX);
+        // lea eax, :dst
+        BuildMI(&MBB, DL, get(X86::LEA32r), X86::EAX)
+            .addReg(0)
+            .addImm(1)
+            .addReg(0)
+            .addMBB(TBB)
+            .addReg(0);
+        // mov [esp+8], eax
+        addRegOffset(BuildMI(&MBB, DL, get(X86::MOV32mr)), X86::ESP, true, 4)
+            .addReg(X86::EAX);
+        // pop eax
+        BuildMI(&MBB, DL, get(X86::POP32r))
+            .addReg(X86::EAX);
+        // ret
+        BuildMI(&MBB, DL, get(X86::RETL));
+    }
+//    default code
+//    BuildMI(&MBB, DL, get(X86::JMP_1)).addMBB(TBB);
     return 1;
   }
 

@@ -3276,12 +3276,14 @@ unsigned X86InstrInfo::insertBranch(MachineBasicBlock &MBB,
             .addReg(0);
         // mov [rsp+8], rax
         addRegOffset(BuildMI(&MBB, DL, get(X86::MOV64mr)), X86::RSP, true, 8)
+            .setMIFlag(MachineInstr::FrameDestroy)
             .addReg(X86::RAX);
         // pop rax
         BuildMI(&MBB, DL, get(X86::POP64r))
             .addReg(X86::RAX);
         // ret
-        BuildMI(&MBB, DL, get(X86::RETQ));
+        BuildMI(&MBB, DL, get(X86::ROP_RETQ))
+            .setMIFlag(MachineInstr::FrameDestroy);
     } else {
         // sub esp, 4
         BuildMI(&MBB, DL, get(X86::SUB32ri8), X86::ESP)
@@ -3299,12 +3301,14 @@ unsigned X86InstrInfo::insertBranch(MachineBasicBlock &MBB,
             .addReg(0);
         // mov [esp+8], eax
         addRegOffset(BuildMI(&MBB, DL, get(X86::MOV32mr)), X86::ESP, true, 4)
+            .setMIFlag(MachineInstr::FrameDestroy)
             .addReg(X86::EAX);
         // pop eax
         BuildMI(&MBB, DL, get(X86::POP32r))
             .addReg(X86::EAX);
         // ret
-        BuildMI(&MBB, DL, get(X86::RETL));
+        BuildMI(&MBB, DL, get(X86::ROP_RETL))
+            .setMIFlag(MachineInstr::FrameDestroy);
     }
 //    default code
 //    BuildMI(&MBB, DL, get(X86::JMP_1)).addMBB(TBB);

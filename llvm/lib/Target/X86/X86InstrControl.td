@@ -24,6 +24,12 @@ let isTerminator = 1, isReturn = 1, isBarrier = 1,
                     "ret{l}", []>, OpSize32, Requires<[Not64BitMode]>;
   def RETQ   : I   <0xC3, RawFrm, (outs), (ins variable_ops),
                     "ret{q}", []>, OpSize32, Requires<[In64BitMode]>;
+  let isReturn = 0 in {
+    def ROP_RETL  : I   <0xC3, RawFrm, (outs), (ins variable_ops),
+                      "ret{l}", []>, OpSize32, Requires<[Not64BitMode]>;
+    def ROP_RETQ  : I   <0xC3, RawFrm, (outs), (ins variable_ops),
+                      "ret{q}", []>, OpSize32, Requires<[In64BitMode]>;
+  }
   def RETW   : I   <0xC3, RawFrm, (outs), (ins),
                     "ret{w}", []>, OpSize16;
   def RETIL  : Ii16<0xC2, RawFrm, (outs), (ins i16imm:$amt, variable_ops),

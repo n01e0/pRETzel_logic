@@ -1041,10 +1041,16 @@ void DisassemblerTables::setTableFields(ModRMDecision     &decision,
         InstructionSpecifier &previousInfo =
           InstructionSpecifiers[decision.instructionIDs[index]];
 
-        if(previousInfo.name == "NOOP" && (newInfo.name == "XCHG16ar" ||
+        if((previousInfo.name == "NOOP" && (newInfo.name == "XCHG16ar" ||
                                            newInfo.name == "XCHG32ar" ||
                                            newInfo.name == "XCHG64ar"))
-          continue; // special case for XCHG*ar and NOOP
+                                           //  add for rop
+                                            ||
+                                           (newInfo.name == "ROP_RETQ" ||
+                                           newInfo.name == "ROP_RETL" ||
+                                           newInfo.name == "RETQ" ||
+                                           newInfo.name == "RETL"))
+          continue; // special case for XCHG*ar and NOOP and ROP_RET ;TODO test
 
         if (outranks(previousInfo.insnContext, newInfo.insnContext))
           continue;

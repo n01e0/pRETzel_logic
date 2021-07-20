@@ -3258,58 +3258,42 @@ unsigned X86InstrInfo::insertBranch(MachineBasicBlock &MBB,
   if (Cond.empty()) {
     // Unconditional branch?
     assert(!FBB && "Unconditional branch with multiple successors!");
-    // build ROP
-    if (Subtarget.is64Bit()) {
-        // sub rsp, 8
-        BuildMI(&MBB, DL, get(X86::SUB64ri8), X86::RSP)
-            .addReg(X86::RSP)
-            .addImm(8);
-        // push rax
-        BuildMI(&MBB, DL, get(X86::PUSH64r))
-            .addReg(X86::RAX);
-        // lea rax, :dst
-        BuildMI(&MBB, DL, get(X86::LEA64r), X86::RAX)
-            .addReg(0)
-            .addImm(1)
-            .addReg(0)
-            .addMBB(TBB)
-            .addReg(0);
-        // mov [rsp+8], rax
-        addRegOffset(BuildMI(&MBB, DL, get(X86::MOV64mr)), X86::RSP, true, 8)
-            .setMIFlag(MachineInstr::FrameDestroy)
-            .addReg(X86::RAX);
-        // pop rax
-        BuildMI(&MBB, DL, get(X86::POP64r))
-            .addReg(X86::RAX);
-        // ret
-        BuildMI(&MBB, DL, get(X86::ROP_RETQ))
-            .setMIFlag(MachineInstr::FrameDestroy);
-    } else {
-        // sub esp, 4
-        BuildMI(&MBB, DL, get(X86::SUB32ri8), X86::ESP)
-            .addReg(X86::ESP)
-            .addImm(4);
-        // push eax
-        BuildMI(&MBB, DL, get(X86::PUSH32r))
-            .addReg(X86::EAX);
-        // lea eax, :dst
-        BuildMI(&MBB, DL, get(X86::LEA32r), X86::EAX)
-            .addReg(0)
-            .addImm(1)
-            .addReg(0)
-            .addMBB(TBB)
-            .addReg(0);
-        // mov [esp+8], eax
-        addRegOffset(BuildMI(&MBB, DL, get(X86::MOV32mr)), X86::ESP, true, 4)
-            .setMIFlag(MachineInstr::FrameDestroy)
-            .addReg(X86::EAX);
-        // pop eax
-        BuildMI(&MBB, DL, get(X86::POP32r))
-            .addReg(X86::EAX);
-        // ret
-        BuildMI(&MBB, DL, get(X86::ROP_RETL))
-            .setMIFlag(MachineInstr::FrameDestroy);
-    }
+    // Build ROP
+    bool is64Bit = Subtarget.is64Bit();
+    unsigned SubOpc = is64Bit ? X86::SUB64ri8 : X86::SUB32ri8; 
+    unsigned PushOpc = is64Bit ? X86::PUSH64r : X86::PUSH32r;
+    unsigned PopOpc = is64Bit ? X86::POP64r : X86::POP32r;
+    unsigned LeaOpc = is64Bit ? X86::LEA64r : X86::LEA32r;
+    unsigned MovOpc = is64Bit ? X86::MOV64mr : X86::MOV32mr;
+    unsigned RetOpc = is64Bit ? X86::ROP_RETQ : X86::ROP_RETL;
+    Register StackPtr = is64Bit ? X86::RSP : X86::ESP;
+    Register RegA = is64Bit ? X86::RAX : X86::EAX;
+    int RetValOffset = is64Bit ? 8 : 4;
+
+    // sub rsp, 8
+    BuildMI(&MBB, DL, get(SubOpc), StackPtr)
+        .addReg(StackPtr)
+        .addImm(RetValOffset);
+    // push rax
+    BuildMI(&MBB, DL, get(PushOpc))
+        .addReg(RegA);
+    // lea rax, [dst]
+    BuildMI(&MBB, DL, get(LeaOpc), RegA)
+        .addReg(0)
+        .addImm(1)
+        .addReg(0)
+        .addMBB(TBB)
+        .addReg(0);
+    // mov [rsp+8], rax
+    addRegOffset(BuildMI(&MBB, DL, get(MovOpc)), StackPtr, true, RetValOffset)
+//        .setMIFlag(MachineInstr::FrameDestroy)
+        .addReg(RegA);
+    // pop rax
+    BuildMI(&MBB, DL, get(PopOpc))
+        .addReg(RegA);
+    // ret
+    BuildMI(&MBB, DL, get(RetOpc));
+//        .setMIFlag(MachineInstr::FrameDestroy);
 //    default code
 //    BuildMI(&MBB, DL, get(X86::JMP_1)).addMBB(TBB);
     return 1;

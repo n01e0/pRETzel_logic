@@ -3260,7 +3260,6 @@ unsigned X86InstrInfo::insertBranch(MachineBasicBlock &MBB,
     assert(!FBB && "Unconditional branch with multiple successors!");
     // Build ROP
     bool is64Bit = Subtarget.is64Bit();
-    unsigned SubOpc = is64Bit ? X86::SUB64ri8 : X86::SUB32ri8; 
     unsigned PushOpc = is64Bit ? X86::PUSH64r : X86::PUSH32r;
     unsigned PopOpc = is64Bit ? X86::POP64r : X86::POP32r;
     unsigned LeaOpc = is64Bit ? X86::LEA64r : X86::LEA32r;
@@ -3270,10 +3269,8 @@ unsigned X86InstrInfo::insertBranch(MachineBasicBlock &MBB,
     Register RegA = is64Bit ? X86::RAX : X86::EAX;
     int RetValOffset = is64Bit ? 8 : 4;
 
-    // sub rsp, 8
-    BuildMI(&MBB, DL, get(SubOpc), StackPtr)
-        .addReg(StackPtr)
-        .addImm(RetValOffset);
+    // lea rsp, [rsp-RetValOffset]
+    addRegOffset(BuildMI(&MBB, DL, get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
     // push rax
     BuildMI(&MBB, DL, get(PushOpc))
         .addReg(RegA);

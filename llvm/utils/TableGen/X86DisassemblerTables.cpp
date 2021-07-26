@@ -1047,9 +1047,7 @@ void DisassemblerTables::setTableFields(ModRMDecision     &decision,
                                            //  add for rop
                                             ||
                                            (newInfo.name == "ROP_RETQ" ||
-                                           newInfo.name == "ROP_RETL" ||
-                                           newInfo.name == "RETQ" ||
-                                           newInfo.name == "RETL"))
+                                           newInfo.name == "ROP_RETL"))
           continue; // special case for XCHG*ar and NOOP and ROP_RET ;TODO test
 
         if (outranks(previousInfo.insnContext, newInfo.insnContext))

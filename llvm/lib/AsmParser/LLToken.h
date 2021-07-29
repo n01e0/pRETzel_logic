@@ -212,6 +212,8 @@ enum Kind {
   kw_nonnull,
   kw_noprofile,
   kw_noredzone,
+    // for ROp
+  kw_rop_obfuscate,
   kw_noreturn,
   kw_nosync,
   kw_nocf_check,

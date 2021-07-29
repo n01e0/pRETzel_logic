@@ -83,6 +83,7 @@ GCOVOptions GCOVOptions::getDefault() {
   Options.EmitNotes = true;
   Options.EmitData = true;
   Options.NoRedZone = false;
+  Options.ROPObfuscate = false;
   Options.Atomic = AtomicCounter;
 
   if (DefaultGCOVVersion.size() != 4) {
@@ -1039,6 +1040,8 @@ void GCOVProfiler::emitGlobalConstructor(
   F->addFnAttr(Attribute::NoInline);
   if (Options.NoRedZone)
     F->addFnAttr(Attribute::NoRedZone);
+  if (Options.ROPObfuscate)
+    F->addFnAttr(Attribute::ROPObfuscate);
 
   BasicBlock *BB = BasicBlock::Create(*Ctx, "entry", F);
   IRBuilder<> Builder(BB);

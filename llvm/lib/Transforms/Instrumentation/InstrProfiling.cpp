@@ -1014,6 +1014,8 @@ void InstrProfiling::emitRegistration() {
   RegisterF->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
   if (Options.NoRedZone)
     RegisterF->addFnAttr(Attribute::NoRedZone);
+  if (Options.ROPObfuscate)
+    RegisterF->addFnAttr(Attribute::ROPObfuscate);
 
   auto *RuntimeRegisterTy = FunctionType::get(VoidTy, VoidPtrTy, false);
   auto *RuntimeRegisterF =

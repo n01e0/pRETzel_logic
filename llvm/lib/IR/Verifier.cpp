@@ -1617,6 +1617,7 @@ static bool isFuncOnlyAttr(Attribute::AttrKind Kind) {
   case Attribute::SafeStack:
   case Attribute::ShadowCallStack:
   case Attribute::NoRedZone:
+  case Attribute::ROPObfuscate:
   case Attribute::NoImplicitFloat:
   case Attribute::Naked:
   case Attribute::InlineHint:
@@ -1662,7 +1663,7 @@ static bool isFuncOnlyAttr(Attribute::AttrKind Kind) {
 static bool isFuncOrArgAttr(Attribute::AttrKind Kind) {
   return Kind == Attribute::ReadOnly || Kind == Attribute::WriteOnly ||
          Kind == Attribute::ReadNone || Kind == Attribute::NoFree ||
-         Kind == Attribute::Preallocated;
+         Kind == Attribute::Preallocated || Kind == Attribute::ROPObfuscate;
 }
 
 void Verifier::verifyAttributeTypes(AttributeSet Attrs, bool IsFunction,

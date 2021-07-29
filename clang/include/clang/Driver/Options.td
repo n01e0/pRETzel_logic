@@ -4461,6 +4461,12 @@ def disable_O0_optnone : Flag<["-"], "disable-O0-optnone">,
 def disable_red_zone : Flag<["-"], "disable-red-zone">,
   HelpText<"Do not emit code that uses the red zone.">,
   MarshallingInfoFlag<CodeGenOpts<"DisableRedZone">>;
+
+// rop-obfuscate option
+def rop_obfuscate : Flag<["-"], "rop-obfuscate">,
+  HelpText<"ROP obfuscation">,
+  MarshallingInfoFlag<CodeGenOpts<"ROPObfuscate">>;
+
 def dwarf_ext_refs : Flag<["-"], "dwarf-ext-refs">,
   HelpText<"Generate debug info with external references to clang modules"
            " or precompiled headers">,

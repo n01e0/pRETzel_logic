@@ -391,6 +391,8 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
     return "nonnull";
   if (hasAttribute(Attribute::NoRedZone))
     return "noredzone";
+  if (hasAttribute(Attribute::ROPObfuscate))
+      return "rop_obfuscate";
   if (hasAttribute(Attribute::NoReturn))
     return "noreturn";
   if (hasAttribute(Attribute::NoSync))

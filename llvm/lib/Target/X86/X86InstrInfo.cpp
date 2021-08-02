@@ -3068,7 +3068,6 @@ bool X86InstrInfo::AnalyzeBranchImpl(
         BuildMI(MBB, UnCondBrIter, MBB.findDebugLoc(I), get(X86::JCC_1))
           .addMBB(UnCondBrIter->getOperand(0).getMBB())
           .addImm(BranchCode);
-        // Build ROP
         const BasicBlock *BB = MBB.getBasicBlock();
         const Function *F = BB->getParent();
         if (F->hasFnAttribute(Attribute::ROPObfuscate)) {
@@ -3107,8 +3106,6 @@ bool X86InstrInfo::AnalyzeBranchImpl(
             BuildMI(MBB, UnCondBrIter, MBB.findDebugLoc(I), get(X86::JMP_1))
               .addMBB(TargetBB);
         }
-        BuildMI(MBB, UnCondBrIter, MBB.findDebugLoc(I), get(X86::JMP_1))
-          .addMBB(TargetBB);
 
         OldInst->eraseFromParent();
         UnCondBrIter->eraseFromParent();

@@ -2079,9 +2079,13 @@ void Clang::AddX86TargetArgs(const ArgList &Args,
 
   if (!Args.hasFlag(options::OPT_mred_zone, options::OPT_mno_red_zone, true) ||
       Args.hasArg(options::OPT_mkernel) ||
-      Args.hasArg(options::OPT_fapple_kext) ||
-      Args.hasArg(options::OPT_mrop_obfuscate))
+      Args.hasArg(options::OPT_fapple_kext) )
     CmdArgs.push_back("-disable-red-zone");
+
+  if (Args.hasArg(options::OPT_mrop_obfuscate)) {
+    CmdArgs.push_back("-disable-red-zone");
+    CmdArgs.push_back("-rop-obfuscate");
+  }
 
 //  if (Args.hasArg(options::OPT_mrop_obfuscate))
 //      CmdArgs.push_back("-mrop-obfuscate");

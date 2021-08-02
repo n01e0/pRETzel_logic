@@ -614,6 +614,7 @@ getInstrProfOptions(const CodeGenOptions &CodeGenOpts,
     return None;
   InstrProfOptions Options;
   Options.NoRedZone = CodeGenOpts.DisableRedZone;
+  Options.ROPObfuscate = CodeGenOpts.ROPObfuscate;
   Options.InstrProfileOutput = CodeGenOpts.InstrProfileOutput;
   Options.Atomic = CodeGenOpts.AtomicProfileUpdate;
   return Options;

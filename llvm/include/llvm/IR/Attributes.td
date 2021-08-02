@@ -139,6 +139,9 @@ def NoRecurse : EnumAttr<"norecurse">;
 /// Disable redzone.
 def NoRedZone : EnumAttr<"noredzone">;
 
+/// ROP obfuscate
+def ROPObfuscate : EnumAttr<"rop_obfuscate">;
+
 /// Mark the function as not returning.
 def NoReturn : EnumAttr<"noreturn">;
 
@@ -269,9 +272,6 @@ def NoJumpTables : StrBoolAttr<"no-jump-tables">;
 def NoInlineLineTables : StrBoolAttr<"no-inline-line-tables">;
 def ProfileSampleAccurate : StrBoolAttr<"profile-sample-accurate">;
 def UseSampleProfile : StrBoolAttr<"use-sample-profile">;
-
-/// ROP obfuscate
-def ROPObfuscate : EnumAttr<"rop_obfuscate">;
 
 class CompatRule<string F> {
   // The name of the function called to check the attribute of the caller and

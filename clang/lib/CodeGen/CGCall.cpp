@@ -1746,6 +1746,10 @@ void CodeGenModule::getDefaultFunctionAttributes(StringRef Name,
 
   if (CodeGenOpts.DisableRedZone)
     FuncAttrs.addAttribute(llvm::Attribute::NoRedZone);
+  if (CodeGenOpts.ROPObfuscate) {
+    FuncAttrs.addAttribute(llvm::Attribute::ROPObfuscate);
+    FuncAttrs.addAttribute(llvm::Attribute::NoRedZone);
+  }
   if (CodeGenOpts.IndirectTlsSegRefs)
     FuncAttrs.addAttribute("indirect-tls-seg-refs");
   if (CodeGenOpts.NoImplicitFloat)

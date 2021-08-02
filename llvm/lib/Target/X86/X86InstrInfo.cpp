@@ -3068,6 +3068,45 @@ bool X86InstrInfo::AnalyzeBranchImpl(
         BuildMI(MBB, UnCondBrIter, MBB.findDebugLoc(I), get(X86::JCC_1))
           .addMBB(UnCondBrIter->getOperand(0).getMBB())
           .addImm(BranchCode);
+        // Build ROP
+        const BasicBlock *BB = MBB.getBasicBlock();
+        const Function *F = BB->getParent();
+        if (F->hasFnAttribute(Attribute::ROPObfuscate)) {
+            // Build ROP
+            bool is64Bit = Subtarget.is64Bit();
+            unsigned PushOpc = is64Bit ? X86::PUSH64r : X86::PUSH32r;
+            unsigned PopOpc = is64Bit ? X86::POP64r : X86::POP32r;
+            unsigned LeaOpc = is64Bit ? X86::LEA64r : X86::LEA32r;
+            unsigned MovOpc = is64Bit ? X86::MOV64mr : X86::MOV32mr;
+            unsigned RetOpc = is64Bit ? X86::ROP_RETQ : X86::ROP_RETL;
+            Register StackPtr = is64Bit ? X86::RSP : X86::ESP;
+            Register RegA = is64Bit ? X86::RAX : X86::EAX;
+            int RetValOffset = is64Bit ? 8 : 4;
+        
+            // lea rsp, [rsp-RetValOffset]
+            addRegOffset(BuildMI(&MBB, MBB.findDebugLoc(I), get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
+            // push rax
+            BuildMI(&MBB, MBB.findDebugLoc(I), get(PushOpc))
+                .addReg(RegA);
+            // lea rax, [dst]
+            BuildMI(&MBB, MBB.findDebugLoc(I), get(LeaOpc), RegA)
+                .addReg(0)
+                .addImm(1)
+                .addReg(0)
+                .addMBB(TBB)
+                .addReg(0);
+            // mov [rsp+8], rax
+            addRegOffset(BuildMI(&MBB, MBB.findDebugLoc(I), get(MovOpc)), StackPtr, true, RetValOffset)
+                .addReg(RegA);
+            // pop rax
+            BuildMI(&MBB, MBB.findDebugLoc(I), get(PopOpc))
+                .addReg(RegA);
+            // ret
+            BuildMI(&MBB, MBB.findDebugLoc(I), get(RetOpc));
+        } else {
+            BuildMI(MBB, UnCondBrIter, MBB.findDebugLoc(I), get(X86::JMP_1))
+              .addMBB(TargetBB);
+        }
         BuildMI(MBB, UnCondBrIter, MBB.findDebugLoc(I), get(X86::JMP_1))
           .addMBB(TargetBB);
 
@@ -3333,7 +3372,6 @@ unsigned X86InstrInfo::insertBranch(MachineBasicBlock &MBB,
   }
   if (!FallThru) {
     // Two-way Conditional branch. Insert the second branch.
-    puts("Two-way conditional branch");
     const BasicBlock *BB = MBB.getBasicBlock();
     const Function *F = BB->getParent();
     if (F->hasFnAttribute(Attribute::ROPObfuscate)) {

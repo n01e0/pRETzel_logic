@@ -3553,6 +3553,7 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
         //MachineBasicBlock *MBB = FuncInfo.MBB;
         //auto InsertPt = FuncInfo.InsertPt;
         // lea rsp, [rsp-RetValOffset]
+        /*
         MIB = addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
 
         // push rax
@@ -3578,18 +3579,6 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
         // lea rax, [rax+OpSize]
         addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), RegA), RegA, true, OpSize);
         
-//        MachineFunction *parent = FuncInfo.MBB->getParent();
-//        MachineBasicBlock *callerMBB = parent->CreateMachineBasicBlock();
-//        MachineBasicBlock *continuiningMBB = FuncInfo.MBB->splitAt(*SplitInstr, true);
-        
-        // lea rax, [caller label]
-//        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), RegA)
-//            .addReg(0)
-//            .addImm(1)
-//            .addReg(0)
-//            .addMBB(FuncInfo.MBB)
-//            .addReg(0);
-//        puts("addMBB done");
         // mov [rsp+RetValOffset], rax
         addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovOpc)), StackPtr, true, RetValOffset)
             .addReg(RegA);
@@ -3597,17 +3586,9 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PopOpc))
             .addReg(RegA);
         // ret
-        MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(RetOpc));
-        MIB.getInstr()->setPreInstrSymbol(*Func, CalleeRecoverSym);
-        /*
-
-        Register ResultReg = FuncInfo.CreateRegs(CLI.RetTy);
-        CLI.ResultReg = ResultReg;
-        CLI.Call = MIB;
-
-        return true;
         */
-//        callerMBB->dump();
+        MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(RetOpc));
+        MIB.getInstr()->setPostInstrSymbol(*Func, CalleeRecoverSym);
 
     } else {
         MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(CallOpc));

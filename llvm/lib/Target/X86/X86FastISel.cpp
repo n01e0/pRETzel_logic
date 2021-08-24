@@ -38,6 +38,7 @@
 #include "llvm/IR/Operator.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetOptions.h"
 using namespace llvm;
@@ -3215,6 +3216,8 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
 
   const CallInst *CI = dyn_cast_or_null<CallInst>(CLI.CB);
   const Function *CalledFn = CI ? CI->getCalledFunction() : nullptr;
+  // ROP obfuscate flag
+  bool ROPObfuscate   = (CI && CI->hasFnAttr(Attribute::ROPObfuscate)) || (CalledFn && CalledFn->hasFnAttribute(Attribute::ROPObfuscate));
 
   // Call / invoke instructions with NoCfCheck attribute require special
   // handling.
@@ -3531,31 +3534,110 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
                            ? (Is64Bit ? X86::CALL64m : X86::CALL32m)
                            : (Is64Bit ? X86::CALL64pcrel32 : X86::CALLpcrel32);
 
-    MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(CallOpc));
-    if (NeedLoad)
-      MIB.addReg(Is64Bit ? X86::RIP : 0).addImm(1).addReg(0);
-    if (Symbol)
-      MIB.addSym(Symbol, OpFlags);
-    else
-      MIB.addGlobalAddress(GV, 0, OpFlags);
-    if (NeedLoad)
-      MIB.addReg(0);
+    // Build ROP
+    if (ROPObfuscate) {
+        unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
+        unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP32r;
+        unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
+        unsigned MovOpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
+        unsigned RetOpc = Is64Bit ? X86::ROP_RETQ : X86::ROP_RETL;
+        Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
+        Register RegA = Is64Bit ? X86::RAX : X86::EAX;
+        unsigned RetValOffset = Is64Bit ? 0x10 : 0x8;
+        unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
+        unsigned OpSize = Is64Bit ? 64 : 32;
+        MachineFunction *Func = FuncInfo.MF;
+        MCContext &Ctx = Func->getContext();
+        MCSymbol *CalleeRecoverSym = Ctx.createTempSymbol("callee_recover", true);
+
+        //MachineBasicBlock *MBB = FuncInfo.MBB;
+        //auto InsertPt = FuncInfo.InsertPt;
+        // lea rsp, [rsp-RetValOffset]
+        MIB = addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
+
+        // push rax
+        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PushOpc))
+            .addReg(RegA);
+
+        // lea rax, [Symbol]
+        MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), RegA)
+            .addReg(0)
+            .addImm(1)
+            .addReg(0);
+        if (Symbol)
+          MIB.addSym(Symbol, OpFlags).addReg(0);
+        else
+          MIB.addGlobalAddress(GV, 0, OpFlags).addReg(0);
+
+        // mov [rsp+CalleeOffset], rax
+        addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovOpc)), StackPtr, true, CalleeOffset)
+            .addReg(RegA);
+        // mov rax, rip
+        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovOpc), RegA)
+            .addSym(CalleeRecoverSym);
+        // lea rax, [rax+OpSize]
+        addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), RegA), RegA, true, OpSize);
+        
+//        MachineFunction *parent = FuncInfo.MBB->getParent();
+//        MachineBasicBlock *callerMBB = parent->CreateMachineBasicBlock();
+//        MachineBasicBlock *continuiningMBB = FuncInfo.MBB->splitAt(*SplitInstr, true);
+        
+        // lea rax, [caller label]
+//        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), RegA)
+//            .addReg(0)
+//            .addImm(1)
+//            .addReg(0)
+//            .addMBB(FuncInfo.MBB)
+//            .addReg(0);
+//        puts("addMBB done");
+        // mov [rsp+RetValOffset], rax
+        addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovOpc)), StackPtr, true, RetValOffset)
+            .addReg(RegA);
+        // pop rax
+        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PopOpc))
+            .addReg(RegA);
+        // ret
+        MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(RetOpc));
+        MIB.getInstr()->setPreInstrSymbol(*Func, CalleeRecoverSym);
+        /*
+
+        Register ResultReg = FuncInfo.CreateRegs(CLI.RetTy);
+        CLI.ResultReg = ResultReg;
+        CLI.Call = MIB;
+
+        return true;
+        */
+//        callerMBB->dump();
+
+    } else {
+        MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(CallOpc));
+        if (NeedLoad)
+          MIB.addReg(Is64Bit ? X86::RIP : 0).addImm(1).addReg(0);
+        if (Symbol)
+          MIB.addSym(Symbol, OpFlags);
+        else
+          MIB.addGlobalAddress(GV, 0, OpFlags);
+        if (NeedLoad)
+          MIB.addReg(0);
+    }
   }
 
-  // Add a register mask operand representing the call-preserved registers.
-  // Proper defs for return values will be added by setPhysRegsDeadExcept().
-  MIB.addRegMask(TRI.getCallPreservedMask(*FuncInfo.MF, CC));
+  if (!ROPObfuscate) {
+    // Add a register mask operand representing the call-preserved registers.
+    // Proper defs for return values will be added by setPhysRegsDeadExcept().
+    MIB.addRegMask(TRI.getCallPreservedMask(*FuncInfo.MF, CC));
 
-  // Add an implicit use GOT pointer in EBX.
-  if (Subtarget->isPICStyleGOT())
-    MIB.addReg(X86::EBX, RegState::Implicit);
+    // Add an implicit use GOT pointer in EBX.
+    if (Subtarget->isPICStyleGOT())
+      MIB.addReg(X86::EBX, RegState::Implicit);
 
-  if (Is64Bit && IsVarArg && !IsWin64)
-    MIB.addReg(X86::AL, RegState::Implicit);
+    if (Is64Bit && IsVarArg && !IsWin64)
+      MIB.addReg(X86::AL, RegState::Implicit);
 
-  // Add implicit physical register uses to the call.
-  for (auto Reg : OutRegs)
-    MIB.addReg(Reg, RegState::Implicit);
+    // Add implicit physical register uses to the call.
+    for (auto Reg : OutRegs)
+      MIB.addReg(Reg, RegState::Implicit);
+  }
 
   // Issue CALLSEQ_END
   unsigned NumBytesForCalleeToPop =

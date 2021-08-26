@@ -3547,13 +3547,15 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
         unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
         unsigned OpSize = Is64Bit ? 64 : 32;
         MachineFunction *Func = FuncInfo.MF;
+        int SymId = rand();
+        auto SymName =  "callee_recover_" + std::to_string(SymId);
+        
         MCContext &Ctx = Func->getContext();
-        MCSymbol *CalleeRecoverSym = Ctx.createTempSymbol("callee_recover", true);
+        MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
 
         //MachineBasicBlock *MBB = FuncInfo.MBB;
         //auto InsertPt = FuncInfo.InsertPt;
         // lea rsp, [rsp-RetValOffset]
-        /*
         MIB = addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
 
         // push rax
@@ -3586,7 +3588,6 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PopOpc))
             .addReg(RegA);
         // ret
-        */
         MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(RetOpc));
         MIB.getInstr()->setPostInstrSymbol(*Func, CalleeRecoverSym);
 

@@ -3539,16 +3539,16 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
         unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
         unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP32r;
         unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
-        unsigned MovOpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
+        unsigned MovMROpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
+        unsigned MovRIOpc = Is64Bit ? X86::MOV64ri32 : X86::MOV32ri;
         unsigned RetOpc = Is64Bit ? X86::ROP_RETQ : X86::ROP_RETL;
         Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
         Register RegA = Is64Bit ? X86::RAX : X86::EAX;
         unsigned RetValOffset = Is64Bit ? 0x10 : 0x8;
         unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
-        unsigned OpSize = Is64Bit ? 64 : 32;
         MachineFunction *Func = FuncInfo.MF;
         int SymId = rand();
-        auto SymName =  "callee_recover_" + std::to_string(SymId);
+        auto SymName =  ".callee_recover_" + std::to_string(SymId);
         
         MCContext &Ctx = Func->getContext();
         MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
@@ -3573,16 +3573,14 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
           MIB.addGlobalAddress(GV, 0, OpFlags).addReg(0);
 
         // mov [rsp+CalleeOffset], rax
-        addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovOpc)), StackPtr, true, CalleeOffset)
+        addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovMROpc)), StackPtr, true, CalleeOffset)
             .addReg(RegA);
-        // mov rax, rip
-        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovOpc), RegA)
+        // mov rax, sym
+        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovRIOpc), RegA)
             .addSym(CalleeRecoverSym);
-        // lea rax, [rax+OpSize]
-        addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), RegA), RegA, true, OpSize);
         
         // mov [rsp+RetValOffset], rax
-        addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovOpc)), StackPtr, true, RetValOffset)
+        addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovMROpc)), StackPtr, true, RetValOffset)
             .addReg(RegA);
         // pop rax
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PopOpc))

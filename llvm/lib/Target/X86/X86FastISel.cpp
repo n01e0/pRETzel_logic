@@ -3514,91 +3514,122 @@ bool X86FastISel::fastLowerCall(CallLoweringInfo &CLI) {
 
   // Issue the call.
   MachineInstrBuilder MIB;
-  if (CalleeOp) {
-    // Register-indirect call.
-    unsigned CallOpc = Is64Bit ? X86::CALL64r : X86::CALL32r;
-    MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(CallOpc))
-      .addReg(CalleeOp);
-  } else {
-    // Direct call.
-    assert(GV && "Not a direct call");
+  {
     // See if we need any target-specific flags on the GV operand.
     unsigned char OpFlags = Subtarget->classifyGlobalFunctionReference(GV);
-
-    // This will be a direct call, or an indirect call through memory for
-    // NonLazyBind calls or dllimport calls.
-    bool NeedLoad = OpFlags == X86II::MO_DLLIMPORT ||
-                    OpFlags == X86II::MO_GOTPCREL ||
-                    OpFlags == X86II::MO_COFFSTUB;
-    unsigned CallOpc = NeedLoad
-                           ? (Is64Bit ? X86::CALL64m : X86::CALL32m)
-                           : (Is64Bit ? X86::CALL64pcrel32 : X86::CALLpcrel32);
-
-    // Build ROP
-    if (ROPObfuscate) {
-        unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
-        unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP32r;
-        unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
-        unsigned MovMROpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
-        unsigned MovRIOpc = Is64Bit ? X86::MOV64ri32 : X86::MOV32ri;
-        unsigned RetOpc = Is64Bit ? X86::ROP_RETQ : X86::ROP_RETL;
-        Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
-        Register RegA = Is64Bit ? X86::RAX : X86::EAX;
-        unsigned RetValOffset = Is64Bit ? 0x10 : 0x8;
-        unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
-        MachineFunction *Func = FuncInfo.MF;
-        int SymId = rand();
-        auto SymName =  ".callee_recover_" + std::to_string(SymId);
-        
-        MCContext &Ctx = Func->getContext();
-        MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
-
-        //MachineBasicBlock *MBB = FuncInfo.MBB;
-        //auto InsertPt = FuncInfo.InsertPt;
+    unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
+    unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP32r;
+    unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
+    unsigned MovMROpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
+    unsigned MovRROpc = Is64Bit ? X86::MOV64rr : X86::MOV32rr;
+    unsigned MovRIOpc = Is64Bit ? X86::MOV64ri32 : X86::MOV32ri;
+    unsigned RetOpc = Is64Bit ? X86::ROP_RETQ : X86::ROP_RETL;
+    Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
+    Register RegA = Is64Bit ? X86::RAX : X86::EAX;
+    unsigned RetValOffset = Is64Bit ? 0x10 : 0x8;
+    unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
+    MachineFunction *Func = FuncInfo.MF;
+    static std::atomic<unsigned> SymId{0};
+    auto SymName =  ".callee_recover_" + std::to_string(SymId++);
+    
+    MCContext &Ctx = Func->getContext();
+    MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
+    if (CalleeOp) {
+      // Register-indirect call.
+      if (ROPObfuscate) {
+        unsigned WorkReg = RegA == CalleeOp ? Is64Bit ? X86::RBX : X86::EBX : RegA;
         // lea rsp, [rsp-RetValOffset]
         MIB = addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
 
         // push rax
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PushOpc))
-            .addReg(RegA);
+            .addReg(WorkReg);
 
-        // lea rax, [Symbol]
-        MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), RegA)
-            .addReg(0)
-            .addImm(1)
-            .addReg(0);
-        if (Symbol)
-          MIB.addSym(Symbol, OpFlags).addReg(0);
-        else
-          MIB.addGlobalAddress(GV, 0, OpFlags).addReg(0);
+        // mov rax, CalleeOp
+        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovRROpc), WorkReg)
+            .addReg(CalleeOp);
 
         // mov [rsp+CalleeOffset], rax
         addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovMROpc)), StackPtr, true, CalleeOffset)
-            .addReg(RegA);
+            .addReg(WorkReg);
         // mov rax, sym
-        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovRIOpc), RegA)
+        BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovRIOpc), WorkReg)
             .addSym(CalleeRecoverSym);
         
         // mov [rsp+RetValOffset], rax
         addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovMROpc)), StackPtr, true, RetValOffset)
-            .addReg(RegA);
+            .addReg(WorkReg);
         // pop rax
         BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PopOpc))
-            .addReg(RegA);
+            .addReg(WorkReg);
         // ret
         MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(RetOpc));
         MIB.getInstr()->setPostInstrSymbol(*Func, CalleeRecoverSym);
-
+      } else {
+        unsigned CallOpc = Is64Bit ? X86::CALL64r : X86::CALL32r;
+        MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(CallOpc))
+          .addReg(CalleeOp);
+      }
     } else {
-        MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(CallOpc));
-        if (NeedLoad)
-          MIB.addReg(Is64Bit ? X86::RIP : 0).addImm(1).addReg(0);
-        if (Symbol)
-          MIB.addSym(Symbol, OpFlags);
-        else
-          MIB.addGlobalAddress(GV, 0, OpFlags);
-        if (NeedLoad)
-          MIB.addReg(0);
+      // Direct call.
+      assert(GV && "Not a direct call");
+
+      // Build ROP
+      if (ROPObfuscate) {
+          // lea rsp, [rsp-RetValOffset]
+          MIB = addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
+
+          // push rax
+          BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PushOpc))
+              .addReg(RegA);
+
+          // lea rax, [Symbol]
+          MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(LeaOpc), RegA)
+              .addReg(0)
+              .addImm(1)
+              .addReg(0);
+          if (Symbol)
+            MIB.addSym(Symbol, OpFlags).addReg(0);
+          else
+            MIB.addGlobalAddress(GV, 0, OpFlags).addReg(0);
+
+          // mov [rsp+CalleeOffset], rax
+          addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovMROpc)), StackPtr, true, CalleeOffset)
+              .addReg(RegA);
+          // mov rax, sym
+          BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovRIOpc), RegA)
+              .addSym(CalleeRecoverSym);
+          
+          // mov [rsp+RetValOffset], rax
+          addRegOffset(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(MovMROpc)), StackPtr, true, RetValOffset)
+              .addReg(RegA);
+          // pop rax
+          BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(PopOpc))
+              .addReg(RegA);
+          // ret
+          MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(RetOpc));
+          MIB.getInstr()->setPostInstrSymbol(*Func, CalleeRecoverSym);
+
+      } else {
+          // This will be a direct call, or an indirect call through memory for
+          // NonLazyBind calls or dllimport calls.
+          bool NeedLoad = OpFlags == X86II::MO_DLLIMPORT ||
+                          OpFlags == X86II::MO_GOTPCREL ||
+                          OpFlags == X86II::MO_COFFSTUB;
+          unsigned CallOpc = NeedLoad
+                                 ? (Is64Bit ? X86::CALL64m : X86::CALL32m)
+                                 : (Is64Bit ? X86::CALL64pcrel32 : X86::CALLpcrel32);
+
+          MIB = BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc, TII.get(CallOpc));
+          if (NeedLoad)
+            MIB.addReg(Is64Bit ? X86::RIP : 0).addImm(1).addReg(0);
+          if (Symbol)
+            MIB.addSym(Symbol, OpFlags);
+          else
+            MIB.addGlobalAddress(GV, 0, OpFlags);
+          if (NeedLoad)
+            MIB.addReg(0);
+      }
     }
   }
 

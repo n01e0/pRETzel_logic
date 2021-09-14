@@ -2083,8 +2083,8 @@ void Clang::AddX86TargetArgs(const ArgList &Args,
     CmdArgs.push_back("-disable-red-zone");
 
   if (Args.hasArg(options::OPT_mrop_obfuscate)) {
-      CmdArgs.push_back("-disable-red-zone");
-      CmdArgs.push_back("-rop-obfuscate");
+    CmdArgs.push_back("-disable-red-zone");
+    CmdArgs.push_back("-rop-obfuscate");
   }
 
   if (!Args.hasFlag(options::OPT_mtls_direct_seg_refs,

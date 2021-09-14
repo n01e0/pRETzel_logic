@@ -1463,7 +1463,7 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
   case bitc::ATTR_KIND_NO_RED_ZONE:
     return Attribute::NoRedZone;
   case bitc::ATTR_KIND_ROP_OBFUSCATE:
-    return Attribute::ROPObfucate;
+    return Attribute::ROPObfuscate;
   case bitc::ATTR_KIND_NO_RETURN:
     return Attribute::NoReturn;
   case bitc::ATTR_KIND_NOSYNC:

@@ -67,6 +67,7 @@ CODEGENOPT(LegacyPassManager, 1, 0) ///< Use the legacy pass manager.
 CODEGENOPT(DebugPassManager, 1, 0) ///< Prints debug information for the new
                                    ///< pass manager.
 CODEGENOPT(DisableRedZone    , 1, 0) ///< Set when -mno-red-zone is enabled.
+CODEGENOPT(ROPObfuscate, 1, 0) ///< Set when -mrop-obfuscate is enabled.
 CODEGENOPT(EmitCallSiteInfo, 1, 0) ///< Emit call site info only in the case of
                                    ///< '-g' + 'O>0' level.
 CODEGENOPT(IndirectTlsSegRefs, 1, 0) ///< Set when -mno-tls-direct-seg-refs

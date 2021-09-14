@@ -1246,6 +1246,7 @@ static uint64_t getRawAttributeMask(Attribute::AttrKind Val) {
   case Attribute::Alignment:       return 31 << 16;
   case Attribute::NoCapture:       return 1 << 21;
   case Attribute::NoRedZone:       return 1 << 22;
+  case Attribute::ROPObfuscate:    return 1 << 17;
   case Attribute::NoImplicitFloat: return 1 << 23;
   case Attribute::Naked:           return 1 << 24;
   case Attribute::InlineHint:      return 1 << 25;
@@ -1461,6 +1462,8 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::AllocSize;
   case bitc::ATTR_KIND_NO_RED_ZONE:
     return Attribute::NoRedZone;
+  case bitc::ATTR_KIND_ROP_OBFUSCATE:
+    return Attribute::ROPObfucate;
   case bitc::ATTR_KIND_NO_RETURN:
     return Attribute::NoReturn;
   case bitc::ATTR_KIND_NOSYNC:

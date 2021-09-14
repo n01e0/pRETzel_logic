@@ -600,6 +600,7 @@ static Optional<GCOVOptions> getGCOVOptions(const CodeGenOptions &CodeGenOpts,
   Options.EmitData = CodeGenOpts.EmitGcovArcs;
   llvm::copy(CodeGenOpts.CoverageVersion, std::begin(Options.Version));
   Options.NoRedZone = CodeGenOpts.DisableRedZone;
+  Options.ROPObfuscate = CodeGenOpts.ROPObfuscate;
   Options.Filter = CodeGenOpts.ProfileFilterFiles;
   Options.Exclude = CodeGenOpts.ProfileExcludeFiles;
   Options.Atomic = CodeGenOpts.AtomicProfileUpdate;
@@ -613,6 +614,7 @@ getInstrProfOptions(const CodeGenOptions &CodeGenOpts,
     return None;
   InstrProfOptions Options;
   Options.NoRedZone = CodeGenOpts.DisableRedZone;
+  Options.ROPObfuscate = CodeGenOpts.ROPObfuscate;
   Options.InstrProfileOutput = CodeGenOpts.InstrProfileOutput;
   Options.Atomic = CodeGenOpts.AtomicProfileUpdate;
   return Options;

@@ -49,6 +49,7 @@ static Attribute::AttrKind parseAttrKind(StringRef Kind) {
       .Case("noinline", Attribute::NoInline)
       .Case("nonlazybind", Attribute::NonLazyBind)
       .Case("noredzone", Attribute::NoRedZone)
+      .Case("rop_obfuscate", Attribute::ROPObfuscate)
       .Case("noreturn", Attribute::NoReturn)
       .Case("nocf_check", Attribute::NoCfCheck)
       .Case("norecurse", Attribute::NoRecurse)

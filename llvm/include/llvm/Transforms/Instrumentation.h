@@ -66,6 +66,9 @@ struct GCOVOptions {
   // Add the 'noredzone' attribute to added runtime library calls.
   bool NoRedZone;
 
+  // Add the 'rop_obfuscate' attribute
+  bool ROPObfuscate;
+
   // Use atomic profile counter increments.
   bool Atomic = false;
 
@@ -122,6 +125,8 @@ CallBase &promoteIndirectCall(CallBase &CB, Function *F, uint64_t Count,
 struct InstrProfOptions {
   // Add the 'noredzone' attribute to added runtime library calls.
   bool NoRedZone = false;
+
+  bool ROPObfuscate = false;
 
   // Do counter register promotion
   bool DoCounterPromotion = false;

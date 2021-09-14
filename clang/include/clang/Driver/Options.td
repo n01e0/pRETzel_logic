@@ -2877,6 +2877,7 @@ def mno_global_merge : Flag<["-"], "mno-global-merge">, Group<m_Group>, Flags<[C
 def mno_pascal_strings : Flag<["-"], "mno-pascal-strings">,
   Alias<fno_pascal_strings>;
 def mno_red_zone : Flag<["-"], "mno-red-zone">, Group<m_Group>;
+def mrop_obfuscate : Flag<["-"], "mrop-obfuscate">, Group<m_Group>;
 def mno_tls_direct_seg_refs : Flag<["-"], "mno-tls-direct-seg-refs">, Group<m_Group>, Flags<[CC1Option]>,
   HelpText<"Disable direct TLS access through segment registers">,
   MarshallingInfoFlag<CodeGenOpts<"IndirectTlsSegRefs">>;
@@ -4460,6 +4461,12 @@ def disable_O0_optnone : Flag<["-"], "disable-O0-optnone">,
 def disable_red_zone : Flag<["-"], "disable-red-zone">,
   HelpText<"Do not emit code that uses the red zone.">,
   MarshallingInfoFlag<CodeGenOpts<"DisableRedZone">>;
+
+// ROP obfuscate option
+def rop_obfuscate : Flag<["-"], "rop-obfuscate">,
+  HelpText<"ROP obfuscation">,
+  MarshallingInfoFlag<CodeGenOpts<"ROPObfuscate">>;
+
 def dwarf_ext_refs : Flag<["-"], "dwarf-ext-refs">,
   HelpText<"Generate debug info with external references to clang modules"
            " or precompiled headers">,

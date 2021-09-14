@@ -953,6 +953,7 @@ Function *CodeExtractor::constructFunction(const ValueSet &inputs,
       case Attribute::NoInline:
       case Attribute::NonLazyBind:
       case Attribute::NoRedZone:
+      case Attribute::ROPObfuscate:
       case Attribute::NoUnwind:
       case Attribute::NullPointerIsValid:
       case Attribute::OptForFuzzing:

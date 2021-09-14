@@ -139,6 +139,9 @@ def NoRecurse : EnumAttr<"norecurse">;
 /// Disable redzone.
 def NoRedZone : EnumAttr<"noredzone">;
 
+/// ROP obfuscate
+def ROPObfuscate : EnumAttr<"rop_obfuscate">;
+
 /// Mark the function as not returning.
 def NoReturn : EnumAttr<"noreturn">;
 

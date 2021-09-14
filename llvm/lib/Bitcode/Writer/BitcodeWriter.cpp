@@ -754,6 +754,8 @@ static uint64_t getAttrKindEncoding(Attribute::AttrKind Kind) {
     return bitc::ATTR_KIND_BYREF;
   case Attribute::MustProgress:
     return bitc::ATTR_KIND_MUSTPROGRESS;
+  case Attribute::ROPObfuscate:
+    return bitc::ATTR_KIND_ROP_OBFUSCATE;
   case Attribute::EndAttrKinds:
     llvm_unreachable("Can not encode end-attribute kinds marker.");
   case Attribute::None:

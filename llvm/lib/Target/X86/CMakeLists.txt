@@ -79,6 +79,7 @@ set(sources
   X86WinAllocaExpander.cpp
   X86WinEHState.cpp
   X86InsertWait.cpp
+  X86ROPObfuscate.cpp
   )
 
 add_llvm_target(X86CodeGen ${sources}
@@ -105,3 +106,4 @@ add_subdirectory(AsmParser)
 add_subdirectory(Disassembler)
 add_subdirectory(MCTargetDesc)
 add_subdirectory(TargetInfo)
+

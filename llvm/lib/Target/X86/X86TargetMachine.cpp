@@ -561,6 +561,8 @@ void X86PassConfig::addPreEmitPass2() {
   if (TT.isOSWindows() && TT.getArch() == Triple::x86_64)
     addPass(createX86AvoidTrailingCallPass());
 
+  // ROP obfuscate
+  addPass(createX86ROPObfuscatePass());
   // Verify basic block incoming and outgoing cfa offset and register values and
   // correct CFA calculation rule where needed by inserting appropriate CFI
   // instructions.

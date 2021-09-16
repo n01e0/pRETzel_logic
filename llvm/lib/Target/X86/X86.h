@@ -146,6 +146,9 @@ FunctionPass *createX86LoadValueInjectionRetHardeningPass();
 FunctionPass *createX86SpeculativeLoadHardeningPass();
 FunctionPass *createX86SpeculativeExecutionSideEffectSuppression();
 
+/// Return a pass thea obfuscate by ROP
+FunctionPass *createX86ROPObfuscatePass();
+
 void initializeEvexToVexInstPassPass(PassRegistry &);
 void initializeFixupBWInstPassPass(PassRegistry &);
 void initializeFixupLEAPassPass(PassRegistry &);
@@ -169,6 +172,8 @@ void initializeX86SpeculativeExecutionSideEffectSuppressionPass(PassRegistry &);
 void initializeX86PreTileConfigPass(PassRegistry &);
 void initializeX86TileConfigPass(PassRegistry &);
 void initializeX86LowerAMXTypeLegacyPassPass(PassRegistry &);
+// for ROP obfuscate
+void initializeX86ROPObfuscatePassPass(PassRegistry &);
 
 namespace X86AS {
 enum : unsigned {

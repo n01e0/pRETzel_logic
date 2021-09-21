@@ -117,7 +117,7 @@ static inline bool isCALL(const MachineInstr &MI) {
   return MI.isCall();
 }
 
-static inline bool isRealInstruction(MachineInstr &MI) {
+static inline bool isRealInstruction(const MachineInstr &MI) {
   return !MI.isPseudo() && !MI.isMetaInstruction();
 }
 
@@ -172,9 +172,9 @@ bool X86ROPObfuscatePass::runOnMachineFunction(MachineFunction &MF) {
     for (auto &MI : MBB)     {
       if (!isRealInstruction(MI))
         continue;
-      if (IsJMP(MI))
+      if (isJMP(MI))
         Changed |= ObfuscateJmpInst(MF, MI);
-      else if (IsCALL(MI))
+      else if (isCALL(MI))
         Changed |= ObfuscateCallInst(MF, MI);
     }
   }

@@ -52,13 +52,13 @@ STATISTIC(NumObfuscated, "Number of ROP Obfuscated functions");
 // Returns true if machine function has 'rop_obfuscate' attribute
 static inline bool hasROPAttribute(const MachineFunction &MF);
 
-// Returns true if the instruction is JUMP
-static inline bool isJUMP(const MachineInstr &MI);
+// Returns true if the instruction is JMP
+static inline bool isJMP(const MachineInstr &MI);
 
 // Returns true if the instruction is CALL
 static inline bool isCALL(const MachineInstr &MI);
 
-// Return true if the instruction is a non-meta, non-pseudo instrucion.
+// Return true if the instruction is a non-meta, non-pseudo instruction.
 static inline bool isRealInstruction(const MachineInstr &MI);
 
 namespace {
@@ -79,7 +79,14 @@ public:
   }
 
 private:
+  // return true if instruction is obfuscatable
   bool isObfuscatable(const MachineInstr &MI) const;
+    
+  // obfuscate CALL instruction
+  bool ObfuscateCallInst(const MachineInstr &MI);
+
+  // obfuscate JMP instruction
+  bool ObfuscateJmpInst(const MachineInstr &MI);
 
   MachineRegisterInfo *MRI = nullptr;
   const X86InstrInfo *TII = nullptr;
@@ -97,28 +104,9 @@ static inline bool hasROPAttribute(const MachineFunction &MF) {
   return MF.getFunction().hasFnAttribute(Attribute::ROPObfuscate);
 }
 
-static inline bool isJUMP(const MachineInstr &MI) {
-  unsigned Opcode = MI.getOpcode();
-  switch (Opcode) {
-    case X86::JMP16r:
-    case X86::JMP16m:
-    case X86::JMP32r:
-    case X86::JMP32m:
-    case X86::JMP64r:
-    case X86::JMP64m:
-    case X86::JMP_1:
-    case X86::JMP_2:
-    case X86::JMP_4:
-    case X86::JMP16r_NT:
-    case X86::JMP16m_NT:
-    case X86::JMP32r_NT:
-    case X86::JMP32m_NT:
-    case X86::JMP64r_NT:
-    case X86::JMP64m_NT:
-        return true;
-    default:
-        return false;
-  }
+static inline bool isJMP(const MachineInstr &MI) {
+  return  MI.isBranch() &&
+          MI.isBarrier(); // is unconditional branch
 }
 
 static inline bool isCALL(const MachineInstr &MI) {
@@ -130,20 +118,38 @@ static inline bool isRealInstruction(MachineInstr &MI) {
 }
 
 bool X86ROPObfuscatePass::isObfuscatable(const MachineInstr &MI) const {
-  return isCALL(MI) || isJUMP(MI);
+  return isCALL(MI) || isJMP(MI);
+}
+
+bool X86ROPObfuscatePass::ObfuscateCallInst(const MachineInstr &MI) {
+  bool Changed = false;
+  assert(isCALL(MI) && isRealInstruction(MI));
+
+  switch (MI.getOpcode()) {
+
+  }
+ 
+
+  return Changed;
+}
+
+bool X86ROPObfuscatePass::ObfuscateJmpInst(const MachineInstr &MI) {
+  bool Changed = false;
+  assert(isJMP(MI) && isRealInstruction(MI));
+
+  return Changed;
 }
 
 bool X86ROPObfuscatePass::runOnMachineFunction(MachineFunction &MF) {
   bool Changed = false;
   if (DisableX86ROPObfuscate || !hasROPAttribute(MF))
-      return false;
+      return Changed;
+
+  TII = MF.getSubtarget<X86Subtarget>().getInstrInfo();
 
   // Process all basic blocks.
   for (auto &MBB : MF) {
-      for (auto &MI : MBB) {
-          if (isRealInstruction(MI))
-              MI.dump();
-      }
+    
   }
 
   return Changed;

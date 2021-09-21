@@ -169,7 +169,14 @@ bool X86ROPObfuscatePass::runOnMachineFunction(MachineFunction &MF) {
 
   // Process all basic blocks.
   for (auto &MBB : MF) {
-    
+    for (auto &MI : MBB)     {
+      if (!isRealInstruction(MI))
+        continue;
+      if (IsJMP(MI))
+        Changed |= ObfuscateJmpInst(MF, MI);
+      else if (IsCALL(MI))
+        Changed |= ObfuscateCallInst(MF, MI);
+    }
   }
 
   return Changed;

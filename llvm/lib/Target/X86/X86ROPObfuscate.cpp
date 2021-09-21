@@ -26,6 +26,8 @@
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Function.h"
 #include "llvm/MC/MCInstrDesc.h"
+#include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -83,14 +85,16 @@ private:
   bool isObfuscatable(const MachineInstr &MI) const;
     
   // obfuscate CALL instruction
-  bool ObfuscateCallInst(const MachineInstr &MI);
+  bool ObfuscateCallInst(const MachineFunction &MF, const MachineInstr &MI);
 
   // obfuscate JMP instruction
-  bool ObfuscateJmpInst(const MachineInstr &MI);
+  bool ObfuscateJmpInst(const MachineFunction &MF, const MachineInstr &MI);
 
   MachineRegisterInfo *MRI = nullptr;
+  bool Is64Bit = false;
   const X86InstrInfo *TII = nullptr;
   const X86RegisterInfo *TRI = nullptr;
+  unsigned SymId = 0;
 };
 }
 
@@ -121,19 +125,33 @@ bool X86ROPObfuscatePass::isObfuscatable(const MachineInstr &MI) const {
   return isCALL(MI) || isJMP(MI);
 }
 
-bool X86ROPObfuscatePass::ObfuscateCallInst(const MachineInstr &MI) {
+bool X86ROPObfuscatePass::ObfuscateCallInst(const MachineFunction &MF, const MachineInstr &MI) {
   bool Changed = false;
   assert(isCALL(MI) && isRealInstruction(MI));
+
+  unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
+  unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP64r;
+  unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
+  unsigned MovOpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
+  unsigned RetOpc = Is64Bit ? X86::RETQ : X86::RETL;
+  Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
+  Register WorkReg = Is64Bit ? X86::RAX : X86::EAX;
+  unsigned RetValOffset = Is64Bit ? 0x10 : 0x8;
+  unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
+
+  auto SymName = ".callee_recover_" + MF.getName() + std::to_string(SymId++);
+
+  MCContext &Ctx = MF.getContext();
+  MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
 
   switch (MI.getOpcode()) {
 
   }
- 
 
   return Changed;
 }
 
-bool X86ROPObfuscatePass::ObfuscateJmpInst(const MachineInstr &MI) {
+bool X86ROPObfuscatePass::ObfuscateJmpInst(const MachineFunction &MF, const MachineInstr &MI) {
   bool Changed = false;
   assert(isJMP(MI) && isRealInstruction(MI));
 
@@ -144,8 +162,10 @@ bool X86ROPObfuscatePass::runOnMachineFunction(MachineFunction &MF) {
   bool Changed = false;
   if (DisableX86ROPObfuscate || !hasROPAttribute(MF))
       return Changed;
+  const X86Subtarget &STI = MF.getSubtarget<X86Subtarget>();
 
-  TII = MF.getSubtarget<X86Subtarget>().getInstrInfo();
+  Is64Bit = STI.is64Bit();
+  TII = STI.getInstrInfo();
 
   // Process all basic blocks.
   for (auto &MBB : MF) {

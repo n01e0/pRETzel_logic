@@ -8,7 +8,10 @@
 
 #include "MCTargetDesc/X86BaseInfo.h"
 #include "X86.h"
+#include "X86CallingConv.h"
+#include "X86InstrBuilder.h"
 #include "X86InstrInfo.h"
+#include "X86MachineFunctionInfo.h"
 #include "X86Subtarget.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/LazyMachineBlockFrequencyInfo.h"
@@ -22,9 +25,11 @@
 #include "llvm/CodeGen/MachineSizeOpts.h"
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
+#include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCContext.h"
@@ -32,10 +37,8 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cassert>
 #include <cstdint>
 #include <iterator>
-#include <llvm/CodeGen/SelectionDAG.h>
 
 using namespace llvm;
 
@@ -85,10 +88,10 @@ private:
   bool isObfuscatable(const MachineInstr &MI) const;
     
   // obfuscate CALL instruction
-  bool ObfuscateCallInst(const MachineFunction &MF, const MachineInstr &MI);
+  bool ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI);
 
   // obfuscate JMP instruction
-  bool ObfuscateJmpInst(const MachineFunction &MF, const MachineInstr &MI);
+  bool ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI);
 
   MachineRegisterInfo *MRI = nullptr;
   bool Is64Bit = false;
@@ -125,35 +128,84 @@ bool X86ROPObfuscatePass::isObfuscatable(const MachineInstr &MI) const {
   return isCALL(MI) || isJMP(MI);
 }
 
-bool X86ROPObfuscatePass::ObfuscateCallInst(const MachineFunction &MF, const MachineInstr &MI) {
+bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI) {
   bool Changed = false;
-  assert(isCALL(MI) && isRealInstruction(MI));
+  /*
+   * TODO
 
-  unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
-  unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP64r;
-  unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
-  unsigned MovOpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
-  unsigned RetOpc = Is64Bit ? X86::RETQ : X86::RETL;
-  Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
-  Register WorkReg = Is64Bit ? X86::RAX : X86::EAX;
-  unsigned RetValOffset = Is64Bit ? 0x10 : 0x8;
-  unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
+  const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
+  const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP64r;
+  const unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
+  const unsigned MovOpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
+  const unsigned RetOpc = Is64Bit ? X86::RETQ : X86::RETL;
+  const Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
+  const Register WorkReg = Is64Bit ? X86::RAX : X86::EAX;
+  const unsigned RetValOffset = Is64Bit ? 0x10 : 0x8;
+  const unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
 
   auto SymName = ".callee_recover_" + MF.getName() + std::to_string(SymId++);
 
   MCContext &Ctx = MF.getContext();
   MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
+  
+//  const CallInst *Call = cast<CallInst>(&MI);
 
   switch (MI.getOpcode()) {
 
   }
+  */
 
   return Changed;
 }
 
-bool X86ROPObfuscatePass::ObfuscateJmpInst(const MachineFunction &MF, const MachineInstr &MI) {
+bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI) {
   bool Changed = false;
-  assert(isJMP(MI) && isRealInstruction(MI));
+
+  if (MI.getNumOperands() != 1)
+    return Changed;
+
+  MachineBasicBlock *MBB = MI.getParent();
+  DebugLoc DL = MI.getDebugLoc();
+  const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
+  const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP32r;
+  const unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
+  const unsigned MovOpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
+  const unsigned RetOpc = Is64Bit ? X86::RETQ : X86::RETL;
+  const Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
+  const Register WorkReg = Is64Bit ? X86::RAX : X86::EAX;
+  const unsigned RetValOffset = Is64Bit ? 8 : 4;
+
+  const MachineOperand &Operand = MI.getOperand(0);
+  assert(Operand.isMBB());
+  MachineBasicBlock *TargetAddr = Operand.getMBB();
+
+  // lea StackPtr, [StackPtr - RetValOffset]
+  addRegOffset(BuildMI(*MBB, MBB->erase(&MI), DL, TII->get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
+  Changed = true;
+
+  // push WorkReg
+  MachineInstr *I = BuildMI(&*MBB, MBB->findDebugLoc(MI), TII->get(PushOpc))
+    .addReg(WorkReg)
+    .getInstr();
+
+  // lea WorkReg, [dst]
+  BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+    .addReg(0)
+    .addImm(1)
+    .addReg(0)
+    .addMBB(TargetAddr)
+    .addReg(0);
+
+  // mov [StackPtr+RetValOffset], WorkReg
+  addRegOffset(BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(MovOpc)), StackPtr, true, RetValOffset)
+    .addReg(WorkReg);
+
+  // pop WorkReg
+  BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(PopOpc))
+    .addReg(WorkReg);
+
+  // ret
+  BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(RetOpc));
 
   return Changed;
 }
@@ -169,8 +221,8 @@ bool X86ROPObfuscatePass::runOnMachineFunction(MachineFunction &MF) {
 
   // Process all basic blocks.
   for (auto &MBB : MF) {
-    for (auto &MI : MBB)     {
-      if (!isRealInstruction(MI))
+    for (auto &MI : MBB) {
+      if (!isRealInstruction(MI) || !isObfuscatable(MI))
         continue;
       if (isJMP(MI))
         Changed |= ObfuscateJmpInst(MF, MI);

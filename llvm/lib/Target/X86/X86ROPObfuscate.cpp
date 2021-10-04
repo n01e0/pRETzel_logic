@@ -38,6 +38,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
+#include <cassert>
 #include <iterator>
 
 using namespace llvm;
@@ -166,47 +167,138 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
 
   MachineBasicBlock *MBB = MI.getParent();
   DebugLoc DL = MI.getDebugLoc();
+  const MachineOperand &Operand = MI.getOperand(0);
+  MachineInstr *I = nullptr;
+
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
   const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP32r;
   const unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
-  const unsigned MovOpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
+  const unsigned MovmrOpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
   const unsigned RetOpc = Is64Bit ? X86::RETQ : X86::RETL;
   const Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
   const Register WorkReg = Is64Bit ? X86::RAX : X86::EAX;
   const unsigned RetValOffset = Is64Bit ? 8 : 4;
 
-  const MachineOperand &Operand = MI.getOperand(0);
-  assert(Operand.isMBB());
-  MachineBasicBlock *TargetAddr = Operand.getMBB();
-
-  // lea StackPtr, [StackPtr - RetValOffset]
-  addRegOffset(BuildMI(*MBB, MBB->erase(&MI), DL, TII->get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
-  Changed = true;
-
-  // push WorkReg
-  MachineInstr *I = BuildMI(&*MBB, MBB->findDebugLoc(MI), TII->get(PushOpc))
-    .addReg(WorkReg)
-    .getInstr();
-
-  // lea WorkReg, [dst]
-  BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
-    .addReg(0)
-    .addImm(1)
-    .addReg(0)
-    .addMBB(TargetAddr)
-    .addReg(0);
-
-  // mov [StackPtr+RetValOffset], WorkReg
-  addRegOffset(BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(MovOpc)), StackPtr, true, RetValOffset)
-    .addReg(WorkReg);
-
-  // pop WorkReg
-  BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(PopOpc))
-    .addReg(WorkReg);
-
-  // ret
-  BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(RetOpc));
-
+  if (Operand.getType() == MachineOperand::MO_Register) {
+    I = BuildMI(*MBB, MBB->erase(&MI), DL, TII->get(PushOpc), Operand.getReg());
+    BuildMI(MBB, MBB->findDebugLoc(I), TII->get(RetOpc));
+    Changed = true;
+  } else {
+    assert(!Operand.isReg());
+    // lea StackPtr, [StackPtr - RetValOffset]
+    addRegOffset(BuildMI(*MBB, MBB->erase(&MI), DL, TII->get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
+    Changed = true;
+  
+    // push WorkReg
+    I = BuildMI(&*MBB, MBB->findDebugLoc(MI), TII->get(PushOpc))
+      .addReg(WorkReg)
+      .getInstr();
+  
+    switch (Operand.getType()) {
+      case MachineOperand::MO_Immediate:
+        // lea WorkReg, [Imm]
+        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+          .addReg(0)
+          .addImm(1)
+          .addReg(0)
+          .addImm(Operand.getImm())
+          .addReg(0);
+        break;
+      case MachineOperand::MO_CImmediate:
+        // lea WorkReg, [CImm]
+        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+          .addReg(0)
+          .addImm(1)
+          .addReg(0)
+          .addCImm(Operand.getCImm())
+          .addReg(0);
+        break;
+      case MachineOperand::MO_MachineBasicBlock:
+        // lea WorkReg, [MBB]
+        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+          .addReg(0)
+          .addImm(1)
+          .addReg(0)
+          .addMBB(Operand.getMBB())
+          .addReg(0);
+        break;
+      case MachineOperand::MO_TargetIndex:
+        // lea WorkReg, [TI]
+        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+          .addReg(0)
+          .addImm(1)
+          .addReg(0)
+          .addTargetIndex(Operand.getIndex())
+          .addReg(0);
+        break;
+      case MachineOperand::MO_JumpTableIndex:
+        // lea WorkReg, [JTI]
+        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+          .addReg(0)
+          .addImm(1)
+          .addReg(0)
+          .addJumpTableIndex(Operand.getIndex())
+          .addReg(0);
+        break;
+      case MachineOperand::MO_ExternalSymbol:
+        {
+          MCContext &Ctx = MF.getContext();
+          auto Sym = Ctx.getOrCreateSymbol(Operand.getSymbolName());
+          // lea WorkReg, [ExternalSymbol]
+          BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+            .addReg(0)
+            .addImm(1)
+            .addReg(0)
+            .addSym(Sym)
+            .addReg(0);
+        }
+        break;
+      case MachineOperand::MO_GlobalAddress:
+        // lea WorkReg, [GA]
+        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+          .addReg(0)
+          .addImm(1)
+          .addReg(0)
+          .addGlobalAddress(Operand.getGlobal())
+          .addReg(0);
+        break;
+      case MachineOperand::MO_BlockAddress:
+        // lea WorkReg, [BA]
+        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+          .addReg(0)
+          .addImm(1)
+          .addReg(0)
+          .addBlockAddress(Operand.getBlockAddress())
+          .addReg(0);
+        break;
+      case MachineOperand::MO_MCSymbol:
+        // lea WorkReg, [MBBSymbolName]
+        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+          .addReg(0)
+          .addImm(1)
+          .addReg(0)
+          .addSym(Operand.getMCSymbol())
+          .addReg(0);
+        break;
+      default:
+        assert(!Operand.isReg()); // WTF
+        Operand.dump();
+        printf("%d\n", Operand.getType());
+        assert(0 && "Unhandled Operand");
+    }
+  
+    // mov [StackPtr+RetValOffset], WorkReg
+    addRegOffset(BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
+      .addReg(WorkReg);
+  
+    // pop WorkReg
+    BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(PopOpc))
+      .addReg(WorkReg);
+  
+    // ret
+    BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(RetOpc));
+  }
+  
   return Changed;
 }
 

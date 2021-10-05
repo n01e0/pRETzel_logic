@@ -167,8 +167,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
 
   MachineBasicBlock *MBB = MI.getParent();
   DebugLoc DL = MI.getDebugLoc();
-  const MachineOperand &Operand = MI.getOperand(0);
-  MachineInstr *I = nullptr;
+  MachineOperand &Operand = MI.getOperand(0);
 
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
   const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP32r;
@@ -180,24 +179,22 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
   const unsigned RetValOffset = Is64Bit ? 8 : 4;
 
   if (Operand.getType() == MachineOperand::MO_Register) {
-    I = BuildMI(*MBB, MBB->erase(&MI), DL, TII->get(PushOpc), Operand.getReg());
-    BuildMI(MBB, MBB->findDebugLoc(I), TII->get(RetOpc));
+    BuildMI(*MBB, MBB->erase(MI), DL, TII->get(PushOpc), Operand.getReg());
+    BuildMI(&*MBB, DL, TII->get(RetOpc));
     Changed = true;
   } else {
     assert(!Operand.isReg());
-    // lea StackPtr, [StackPtr - RetValOffset]
-    addRegOffset(BuildMI(*MBB, MBB->erase(&MI), DL, TII->get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
     Changed = true;
   
     // push WorkReg
-    I = BuildMI(&*MBB, MBB->findDebugLoc(MI), TII->get(PushOpc))
+    BuildMI(&*MBB, DL, TII->get(PushOpc))
       .addReg(WorkReg)
       .getInstr();
   
     switch (Operand.getType()) {
       case MachineOperand::MO_Immediate:
         // lea WorkReg, [Imm]
-        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+        BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)
           .addImm(1)
           .addReg(0)
@@ -206,7 +203,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
         break;
       case MachineOperand::MO_CImmediate:
         // lea WorkReg, [CImm]
-        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+        BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)
           .addImm(1)
           .addReg(0)
@@ -215,7 +212,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
         break;
       case MachineOperand::MO_MachineBasicBlock:
         // lea WorkReg, [MBB]
-        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+        BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)
           .addImm(1)
           .addReg(0)
@@ -224,7 +221,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
         break;
       case MachineOperand::MO_TargetIndex:
         // lea WorkReg, [TI]
-        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+        BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)
           .addImm(1)
           .addReg(0)
@@ -233,7 +230,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
         break;
       case MachineOperand::MO_JumpTableIndex:
         // lea WorkReg, [JTI]
-        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+        BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)
           .addImm(1)
           .addReg(0)
@@ -245,7 +242,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
           MCContext &Ctx = MF.getContext();
           auto Sym = Ctx.getOrCreateSymbol(Operand.getSymbolName());
           // lea WorkReg, [ExternalSymbol]
-          BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+          BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
             .addReg(0)
             .addImm(1)
             .addReg(0)
@@ -255,7 +252,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
         break;
       case MachineOperand::MO_GlobalAddress:
         // lea WorkReg, [GA]
-        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+        BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)
           .addImm(1)
           .addReg(0)
@@ -264,7 +261,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
         break;
       case MachineOperand::MO_BlockAddress:
         // lea WorkReg, [BA]
-        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+        BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)
           .addImm(1)
           .addReg(0)
@@ -273,7 +270,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
         break;
       case MachineOperand::MO_MCSymbol:
         // lea WorkReg, [MBBSymbolName]
-        BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(LeaOpc), WorkReg)
+        BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)
           .addImm(1)
           .addReg(0)
@@ -281,22 +278,23 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
           .addReg(0);
         break;
       default:
-        assert(!Operand.isReg()); // WTF
-        Operand.dump();
-        printf("%d\n", Operand.getType());
         assert(0 && "Unhandled Operand");
     }
   
     // mov [StackPtr+RetValOffset], WorkReg
-    addRegOffset(BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
+    addRegOffset(BuildMI(&*MBB, DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
       .addReg(WorkReg);
   
     // pop WorkReg
-    BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(PopOpc))
+    BuildMI(&*MBB, DL, TII->get(PopOpc))
       .addReg(WorkReg);
   
     // ret
-    BuildMI(&*MBB, MBB->findDebugLoc(I), TII->get(RetOpc));
+    BuildMI(&*MBB, DL, TII->get(RetOpc));
+
+    // replace `jmp` instruction with `lea` for allocate stack 
+    // lea StackPtr, [StackPtr - RetValOffset]
+    addRegOffset(BuildMI(*MBB, MBB->erase(MI), DL, TII->get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
   }
   
   return Changed;
@@ -312,8 +310,8 @@ bool X86ROPObfuscatePass::runOnMachineFunction(MachineFunction &MF) {
   TII = STI.getInstrInfo();
 
   // Process all basic blocks.
-  for (auto &MBB : MF) {
-    for (auto &MI : MBB) {
+  for (MachineBasicBlock &MBB : MF) {
+    for (MachineInstr &MI : MBB) {
       if (!isRealInstruction(MI) || !isObfuscatable(MI))
         continue;
       if (isJMP(MI))

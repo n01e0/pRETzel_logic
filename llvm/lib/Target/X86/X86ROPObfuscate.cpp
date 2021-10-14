@@ -229,19 +229,11 @@ static inline void filter_operand(MachineInstr &MI) {
 }
 
 bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI) {
-  assert(MI.getNumOperands() > 0 && "Call without operand why?????????");
-  bool Changed = false;
-
   /*
-  for (unsigned i = 0; i < MI.getNumOperands(); i++) {
-    auto op = MI.getOperand(i);
-    auto ty = op.getType();
-    fprintf(stderr, "Operand[%d] = ", i);
-    op.dump();
-    fprintf(stderr, "Type = ");
-    dump_type(ty);
-  }
-  */
+   * BUG
+   * MBB->back() is not a CALL instruction
+   */
+  bool Changed = false;
 
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
   const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP64r;
@@ -302,7 +294,6 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
 
       } else {
         // with offset
-        MI.dump();
         // push WorkReg
         BuildMI(&*MBB, DL, TII->get(PushOpc))
           .addReg(WorkReg);
@@ -327,7 +318,6 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
         MIB = BuildMI(&*MBB, DL, TII->get(RetOpc));
         MIB.getInstr()->setPostInstrSymbol(MF, CalleeRecoverSym);
         // replace call to stack allocate
-        MI.dump();
         BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
           .addReg(StackPtr)
           .addImm(RetValOffset);

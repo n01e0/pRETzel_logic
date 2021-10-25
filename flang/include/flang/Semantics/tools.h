@@ -14,6 +14,7 @@
 
 #include "flang/Common/Fortran.h"
 #include "flang/Evaluate/expression.h"
+#include "flang/Evaluate/shape.h"
 #include "flang/Evaluate/type.h"
 #include "flang/Evaluate/variable.h"
 #include "flang/Parser/message.h"
@@ -112,6 +113,8 @@ bool IsStaticallyInitialized(const Symbol &, bool ignoreDATAstatements = false);
 // Is the symbol explicitly or implicitly initialized in any way?
 bool IsInitialized(const Symbol &, bool ignoreDATAstatements = false,
     const Symbol *derivedType = nullptr);
+// Is the symbol a component subject to deallocation or finalization?
+bool IsDestructible(const Symbol &, const Symbol *derivedType = nullptr);
 bool HasIntrinsicTypeName(const Symbol &);
 bool IsSeparateModuleProcedureInterface(const Symbol *);
 bool IsAutomatic(const Symbol &);
@@ -138,6 +141,9 @@ inline bool IsAllocatable(const Symbol &symbol) {
 }
 inline bool IsAllocatableOrPointer(const Symbol &symbol) {
   return IsPointer(symbol) || IsAllocatable(symbol);
+}
+inline bool IsSave(const Symbol &symbol) {
+  return symbol.attrs().test(Attr::SAVE);
 }
 inline bool IsNamedConstant(const Symbol &symbol) {
   return symbol.attrs().test(Attr::PARAMETER);
@@ -210,7 +216,7 @@ std::list<SourceName> OrderParameterNames(const Symbol &);
 
 // Return an existing or new derived type instance
 const DeclTypeSpec &FindOrInstantiateDerivedType(Scope &, DerivedTypeSpec &&,
-    SemanticsContext &, DeclTypeSpec::Category = DeclTypeSpec::TypeDerived);
+    DeclTypeSpec::Category = DeclTypeSpec::TypeDerived);
 
 // When a subprogram defined in a submodule defines a separate module
 // procedure whose interface is defined in an ancestor (sub)module,
@@ -248,6 +254,10 @@ const Symbol *FindExternallyVisibleObject(
       expr.u);
 }
 
+// Apply GetUltimate(), then if the symbol is a generic procedure shadowing a
+// specific procedure of the same name, return it instead.
+const Symbol &BypassGeneric(const Symbol &);
+
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
 
 bool ExprHasTypeCategory(
@@ -256,9 +266,13 @@ bool ExprTypeKindIsDefault(
     const SomeExpr &expr, const SemanticsContext &context);
 
 struct GetExprHelper {
+  // Specializations for parse tree nodes that have a typedExpr member.
   static const SomeExpr *Get(const parser::Expr &);
   static const SomeExpr *Get(const parser::Variable &);
   static const SomeExpr *Get(const parser::DataStmtConstant &);
+  static const SomeExpr *Get(const parser::AllocateObject &);
+  static const SomeExpr *Get(const parser::PointerObject &);
+
   template <typename T>
   static const SomeExpr *Get(const common::Indirection<T> &x) {
     return Get(x.value());
@@ -267,6 +281,8 @@ struct GetExprHelper {
     return x ? Get(*x) : nullptr;
   }
   template <typename T> static const SomeExpr *Get(const T &x) {
+    static_assert(
+        !parser::HasTypedExpr<T>::value, "explicit Get overload must be added");
     if constexpr (ConstraintTrait<T>) {
       return Get(x.thing);
     } else if constexpr (WrapperTrait<T>) {
@@ -452,7 +468,10 @@ public:
       name_iterator &nameIterator() { return nameIterator_; }
       name_iterator nameEnd() { return nameEnd_; }
       const Symbol &GetTypeSymbol() const { return derived_->typeSymbol(); }
-      const Scope &GetScope() const { return DEREF(derived_->scope()); }
+      const Scope &GetScope() const {
+        return derived_->scope() ? *derived_->scope()
+                                 : DEREF(GetTypeSymbol().scope());
+      }
       bool operator==(const ComponentPathNode &that) const {
         return &*derived_ == &*that.derived_ &&
             nameIterator_ == that.nameIterator_ &&
@@ -559,5 +578,12 @@ private:
 // Return the (possibly null) name of the ConstructNode
 const std::optional<parser::Name> &MaybeGetNodeName(
     const ConstructNode &construct);
+
+// Convert evaluate::GetShape() result into an ArraySpec
+std::optional<ArraySpec> ToArraySpec(
+    evaluate::FoldingContext &, const evaluate::Shape &);
+std::optional<ArraySpec> ToArraySpec(
+    evaluate::FoldingContext &, const std::optional<evaluate::Shape> &);
+
 } // namespace Fortran::semantics
 #endif // FORTRAN_SEMANTICS_TOOLS_H_

@@ -783,10 +783,10 @@ define <8 x double> @load_v8f64_v8i64(<8 x i64> %trigger, <8 x double>* %addr, <
 define <2 x float> @load_v2f32_v2i32(<2 x i32> %trigger, <2 x float>* %addr, <2 x float> %dst) {
 ; SSE2-LABEL: load_v2f32_v2i32:
 ; SSE2:       ## %bb.0:
+; SSE2-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[0,0,1,1]
 ; SSE2-NEXT:    pxor %xmm2, %xmm2
 ; SSE2-NEXT:    pcmpeqd %xmm0, %xmm2
-; SSE2-NEXT:    pshufd {{.*#+}} xmm0 = xmm2[0,0,1,1]
-; SSE2-NEXT:    movmskpd %xmm0, %eax
+; SSE2-NEXT:    movmskpd %xmm2, %eax
 ; SSE2-NEXT:    testb $1, %al
 ; SSE2-NEXT:    jne LBB7_1
 ; SSE2-NEXT:  ## %bb.2: ## %else
@@ -885,10 +885,10 @@ define <2 x float> @load_v2f32_v2i32(<2 x i32> %trigger, <2 x float>* %addr, <2 
 define <2 x float> @load_v2f32_v2i32_undef(<2 x i32> %trigger, <2 x float>* %addr) {
 ; SSE2-LABEL: load_v2f32_v2i32_undef:
 ; SSE2:       ## %bb.0:
+; SSE2-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[0,0,1,1]
 ; SSE2-NEXT:    pxor %xmm1, %xmm1
 ; SSE2-NEXT:    pcmpeqd %xmm0, %xmm1
-; SSE2-NEXT:    pshufd {{.*#+}} xmm0 = xmm1[0,0,1,1]
-; SSE2-NEXT:    movmskpd %xmm0, %eax
+; SSE2-NEXT:    movmskpd %xmm1, %eax
 ; SSE2-NEXT:    testb $1, %al
 ; SSE2-NEXT:    ## implicit-def: $xmm0
 ; SSE2-NEXT:    jne LBB8_1
@@ -2188,10 +2188,10 @@ define <8 x i64> @load_v8i64_v8i64(<8 x i64> %trigger, <8 x i64>* %addr, <8 x i6
 define <2 x i32> @load_v2i32_v2i32(<2 x i32> %trigger, <2 x i32>* %addr, <2 x i32> %dst) {
 ; SSE2-LABEL: load_v2i32_v2i32:
 ; SSE2:       ## %bb.0:
+; SSE2-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[0,0,1,1]
 ; SSE2-NEXT:    pxor %xmm2, %xmm2
 ; SSE2-NEXT:    pcmpeqd %xmm0, %xmm2
-; SSE2-NEXT:    pshufd {{.*#+}} xmm0 = xmm2[0,0,1,1]
-; SSE2-NEXT:    movmskpd %xmm0, %eax
+; SSE2-NEXT:    movmskpd %xmm2, %eax
 ; SSE2-NEXT:    testb $1, %al
 ; SSE2-NEXT:    jne LBB17_1
 ; SSE2-NEXT:  ## %bb.2: ## %else
@@ -4028,7 +4028,7 @@ define <16 x i8> @load_v16i8_v16i8(<16 x i8> %trigger, <16 x i8>* %addr, <16 x i
 ; SSE2-NEXT:    testl $32768, %eax ## imm = 0x8000
 ; SSE2-NEXT:    je LBB23_32
 ; SSE2-NEXT:  LBB23_31: ## %cond.load43
-; SSE2-NEXT:    pand {{.*}}(%rip), %xmm1
+; SSE2-NEXT:    pand {{\.?LCPI[0-9]+_[0-9]+}}(%rip), %xmm1
 ; SSE2-NEXT:    movzbl 15(%rdi), %eax
 ; SSE2-NEXT:    movd %eax, %xmm0
 ; SSE2-NEXT:    pslldq {{.*#+}} xmm0 = zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,xmm0[0]
@@ -4628,7 +4628,7 @@ define <32 x i8> @load_v32i8_v32i8(<32 x i8> %trigger, <32 x i8>* %addr, <32 x i
 ; SSE2-NEXT:    testl $-2147483648, %eax ## imm = 0x80000000
 ; SSE2-NEXT:    je LBB24_64
 ; SSE2-NEXT:  LBB24_63: ## %cond.load91
-; SSE2-NEXT:    pand {{.*}}(%rip), %xmm3
+; SSE2-NEXT:    pand {{\.?LCPI[0-9]+_[0-9]+}}(%rip), %xmm3
 ; SSE2-NEXT:    movzbl 31(%rdi), %eax
 ; SSE2-NEXT:    movd %eax, %xmm0
 ; SSE2-NEXT:    pslldq {{.*#+}} xmm0 = zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,xmm0[0]
@@ -4787,7 +4787,7 @@ define <32 x i8> @load_v32i8_v32i8(<32 x i8> %trigger, <32 x i8>* %addr, <32 x i
 ; SSE2-NEXT:    testl $32768, %eax ## imm = 0x8000
 ; SSE2-NEXT:    je LBB24_32
 ; SSE2-NEXT:  LBB24_31: ## %cond.load43
-; SSE2-NEXT:    pand {{.*}}(%rip), %xmm2
+; SSE2-NEXT:    pand {{\.?LCPI[0-9]+_[0-9]+}}(%rip), %xmm2
 ; SSE2-NEXT:    movzbl 15(%rdi), %ecx
 ; SSE2-NEXT:    movd %ecx, %xmm0
 ; SSE2-NEXT:    pslldq {{.*#+}} xmm0 = zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,xmm0[0]

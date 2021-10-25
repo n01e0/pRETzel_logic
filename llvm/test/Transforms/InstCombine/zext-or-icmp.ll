@@ -23,11 +23,11 @@ define i8 @zext_or_icmp_icmp(i8 %a, i8 %b) {
 define i8 @zext_or_icmp_icmp_logical(i8 %a, i8 %b) {
 ; CHECK-LABEL: @zext_or_icmp_icmp_logical(
 ; CHECK-NEXT:    [[MASK:%.*]] = and i8 [[A:%.*]], 1
+; CHECK-NEXT:    [[TOBOOL1:%.*]] = icmp eq i8 [[MASK]], 0
 ; CHECK-NEXT:    [[TOBOOL2:%.*]] = icmp eq i8 [[B:%.*]], 0
-; CHECK-NEXT:    [[TOBOOL22:%.*]] = zext i1 [[TOBOOL2]] to i8
-; CHECK-NEXT:    [[TMP1:%.*]] = xor i8 [[MASK]], 1
-; CHECK-NEXT:    [[ZEXT3:%.*]] = or i8 [[TMP1]], [[TOBOOL22]]
-; CHECK-NEXT:    ret i8 [[ZEXT3]]
+; CHECK-NEXT:    [[BOTHCOND:%.*]] = select i1 [[TOBOOL1]], i1 true, i1 [[TOBOOL2]]
+; CHECK-NEXT:    [[ZEXT:%.*]] = zext i1 [[BOTHCOND]] to i8
+; CHECK-NEXT:    ret i8 [[ZEXT]]
 ;
   %mask = and i8 %a, 1
   %toBool1 = icmp eq i8 %mask, 0
@@ -49,10 +49,7 @@ define i32 @dont_widen_undef() {
 ; CHECK-NEXT:    br label [[BLOCK2]]
 ; CHECK:       block2:
 ; CHECK-NEXT:    [[CMP_I:%.*]] = phi i1 [ false, [[BLOCK1:%.*]] ], [ true, [[ENTRY:%.*]] ]
-; CHECK-NEXT:    [[M_011:%.*]] = phi i32 [ 0, [[BLOCK1]] ], [ 33, [[ENTRY]] ]
-; CHECK-NEXT:    [[M_1_OP:%.*]] = lshr i32 1, [[M_011]]
-; CHECK-NEXT:    [[SEXT_MASK:%.*]] = and i32 [[M_1_OP]], 65535
-; CHECK-NEXT:    [[CMP115:%.*]] = icmp ne i32 [[SEXT_MASK]], 0
+; CHECK-NEXT:    [[CMP115:%.*]] = phi i1 [ true, [[BLOCK1]] ], [ false, [[ENTRY]] ]
 ; CHECK-NEXT:    [[CMP1:%.*]] = or i1 [[CMP_I]], [[CMP115]]
 ; CHECK-NEXT:    [[CONV2:%.*]] = zext i1 [[CMP1]] to i32
 ; CHECK-NEXT:    ret i32 [[CONV2]]
@@ -82,10 +79,7 @@ define i32 @dont_widen_undef_logical() {
 ; CHECK-NEXT:    br label [[BLOCK2]]
 ; CHECK:       block2:
 ; CHECK-NEXT:    [[CMP_I:%.*]] = phi i1 [ false, [[BLOCK1:%.*]] ], [ true, [[ENTRY:%.*]] ]
-; CHECK-NEXT:    [[M_011:%.*]] = phi i32 [ 0, [[BLOCK1]] ], [ 33, [[ENTRY]] ]
-; CHECK-NEXT:    [[M_1_OP:%.*]] = lshr i32 1, [[M_011]]
-; CHECK-NEXT:    [[SEXT_MASK:%.*]] = and i32 [[M_1_OP]], 65535
-; CHECK-NEXT:    [[CMP115:%.*]] = icmp ne i32 [[SEXT_MASK]], 0
+; CHECK-NEXT:    [[CMP115:%.*]] = phi i1 [ true, [[BLOCK1]] ], [ false, [[ENTRY]] ]
 ; CHECK-NEXT:    [[CMP1:%.*]] = or i1 [[CMP_I]], [[CMP115]]
 ; CHECK-NEXT:    [[CONV2:%.*]] = zext i1 [[CMP1]] to i32
 ; CHECK-NEXT:    ret i32 [[CONV2]]

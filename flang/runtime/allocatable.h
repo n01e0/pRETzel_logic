@@ -10,14 +10,12 @@
 // to manipulate and query allocatable variables, dummy arguments, & components.
 #ifndef FORTRAN_RUNTIME_ALLOCATABLE_H_
 #define FORTRAN_RUNTIME_ALLOCATABLE_H_
+
 #include "descriptor.h"
 #include "entry-names.h"
 
-namespace Fortran::runtime::typeInfo {
-class DerivedType;
-}
-
 namespace Fortran::runtime {
+
 extern "C" {
 
 // Initializes the descriptor for an allocatable of intrinsic or derived type.
@@ -42,7 +40,7 @@ void RTNAME(AllocatableInitDerived)(
 // this API allows the error to be caught before descriptor is modified.)
 // Return 0 on success (deallocated state), else the STAT= value.
 int RTNAME(AllocatableCheckAllocated)(Descriptor &,
-    Descriptor *errMsg = nullptr, const char *sourceFile = nullptr,
+    const Descriptor *errMsg = nullptr, const char *sourceFile = nullptr,
     int sourceLine = 0);
 
 // For MOLD= allocation; sets bounds, cobounds, and length type
@@ -55,7 +53,7 @@ void RTNAME(AllocatableApplyMold)(Descriptor &, const Descriptor &mold);
 void RTNAME(AllocatableSetBounds)(
     Descriptor &, int zeroBasedDim, SubscriptValue lower, SubscriptValue upper);
 
-// The upper bound is ignored for the last codimension.
+// The upper cobound is ignored for the last codimension.
 void RTNAME(AllocatableSetCoBounds)(Descriptor &, int zeroBasedCoDim,
     SubscriptValue lower, SubscriptValue upper = 0);
 
@@ -72,7 +70,7 @@ void RTNAME(AllocatableSetDerivedLength)(
 // Returns 0 for success, or the STAT= value on failure with hasStat==true.
 int RTNAME(AllocatableCheckLengthParameter)(Descriptor &,
     int which /* 0 for CHARACTER length */, SubscriptValue other,
-    bool hasStat = false, Descriptor *errMsg = nullptr,
+    bool hasStat = false, const Descriptor *errMsg = nullptr,
     const char *sourceFile = nullptr, int sourceLine = 0);
 
 // Allocates an allocatable.  The allocatable descriptor must have been
@@ -85,10 +83,10 @@ int RTNAME(AllocatableCheckLengthParameter)(Descriptor &,
 // derived type, and is always initialized by AllocatableAllocateSource().
 // Performs all necessary coarray synchronization and validation actions.
 int RTNAME(AllocatableAllocate)(Descriptor &, bool hasStat = false,
-    Descriptor *errMsg = nullptr, const char *sourceFile = nullptr,
+    const Descriptor *errMsg = nullptr, const char *sourceFile = nullptr,
     int sourceLine = 0);
 int RTNAME(AllocatableAllocateSource)(Descriptor &, const Descriptor &source,
-    bool hasStat = false, Descriptor *errMsg = nullptr,
+    bool hasStat = false, const Descriptor *errMsg = nullptr,
     const char *sourceFile = nullptr, int sourceLine = 0);
 
 // Assigns to a whole allocatable, with automatic (re)allocation when the
@@ -105,15 +103,19 @@ void RTNAME(AllocatableAssign)(Descriptor &to, const Descriptor &from);
 // with the other APIs for allocatables.)  The destination descriptor
 // must be initialized.
 int RTNAME(MoveAlloc)(Descriptor &to, const Descriptor &from,
-    bool hasStat = false, Descriptor *errMsg = nullptr,
+    bool hasStat = false, const Descriptor *errMsg = nullptr,
     const char *sourceFile = nullptr, int sourceLine = 0);
 
 // Deallocates an allocatable.  Finalizes elements &/or components as needed.
 // The allocatable is left in an initialized state suitable for reallocation
 // with the same bounds, cobounds, and length type parameters.
 int RTNAME(AllocatableDeallocate)(Descriptor &, bool hasStat = false,
-    Descriptor *errMsg = nullptr, const char *sourceFile = nullptr,
+    const Descriptor *errMsg = nullptr, const char *sourceFile = nullptr,
     int sourceLine = 0);
-}
+
+// Variant of above that does not finalize; for intermediate results
+void RTNAME(AllocatableDeallocateNoFinal)(
+    Descriptor &, const char *sourceFile = nullptr, int sourceLine = 0);
+} // extern "C"
 } // namespace Fortran::runtime
 #endif // FORTRAN_RUNTIME_ALLOCATABLE_H_

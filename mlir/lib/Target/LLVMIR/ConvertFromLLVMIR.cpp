@@ -15,12 +15,14 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
-#include "mlir/Target/LLVMIR.h"
-#include "mlir/Target/LLVMIR/TypeTranslation.h"
+#include "mlir/Target/LLVMIR/Import.h"
+#include "mlir/Target/LLVMIR/TypeFromLLVM.h"
 #include "mlir/Translation.h"
 
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
@@ -50,7 +52,7 @@ class Importer {
 public:
   Importer(MLIRContext *context, ModuleOp module)
       : b(context), context(context), module(module),
-        unknownLoc(FileLineColLoc::get("imported-bitcode", 0, 0, context)),
+        unknownLoc(FileLineColLoc::get(context, "imported-bitcode", 0, 0)),
         typeTranslator(*context) {
     b.setInsertionPointToStart(module.getBody());
   }
@@ -107,10 +109,11 @@ private:
 
   /// Globals are inserted before the first function, if any.
   Block::iterator getGlobalInsertPt() {
-    auto i = module.getBody()->begin();
-    while (!isa<LLVMFuncOp, ModuleTerminatorOp>(i))
-      ++i;
-    return i;
+    auto it = module.getBody()->begin();
+    auto endIt = module.getBody()->end();
+    while (it != endIt && !isa<LLVMFuncOp>(it))
+      ++it;
+    return it;
   }
 
   /// Functions are always inserted before the module terminator.
@@ -141,13 +144,13 @@ Location Importer::processDebugLoc(const llvm::DebugLoc &loc,
     llvm::raw_string_ostream os(s);
     os << "llvm-imported-inst-%";
     inst->printAsOperand(os, /*PrintType=*/false);
-    return FileLineColLoc::get(os.str(), 0, 0, context);
+    return FileLineColLoc::get(context, os.str(), 0, 0);
   } else if (!loc) {
     return unknownLoc;
   }
   // FIXME: Obtain the filename from DILocationInfo.
-  return FileLineColLoc::get("imported-bitcode", loc.getLine(), loc.getCol(),
-                             context);
+  return FileLineColLoc::get(context, "imported-bitcode", loc.getLine(),
+                             loc.getCol());
 }
 
 Type Importer::processType(llvm::Type *type) {
@@ -312,9 +315,19 @@ GlobalOp Importer::processGlobal(llvm::GlobalVariable *GV) {
   Type type = processType(GV->getValueType());
   if (!type)
     return nullptr;
-  GlobalOp op = b.create<GlobalOp>(
-      UnknownLoc::get(context), type, GV->isConstant(),
-      convertLinkageFromLLVM(GV->getLinkage()), GV->getName(), valueAttr);
+
+  uint64_t alignment = 0;
+  llvm::MaybeAlign maybeAlign = GV->getAlign();
+  if (maybeAlign.hasValue()) {
+    llvm::Align align = maybeAlign.getValue();
+    alignment = align.value();
+  }
+
+  GlobalOp op =
+      b.create<GlobalOp>(UnknownLoc::get(context), type, GV->isConstant(),
+                         convertLinkageFromLLVM(GV->getLinkage()),
+                         GV->getName(), valueAttr, alignment);
+
   if (GV->hasInitializer() && !valueAttr) {
     Region &r = op.getInitializerRegion();
     currentEntryBlock = b.createBlock(&r);
@@ -324,6 +337,12 @@ GlobalOp Importer::processGlobal(llvm::GlobalVariable *GV) {
       return nullptr;
     b.create<ReturnOp>(op.getLoc(), ArrayRef<Value>({v}));
   }
+  if (GV->hasAtLeastLocalUnnamedAddr())
+    op.unnamed_addrAttr(UnnamedAddrAttr::get(
+        context, convertUnnamedAddrFromLLVM(GV->getUnnamedAddr())));
+  if (GV->hasSection())
+    op.sectionAttr(b.getStringAttr(GV->getSection()));
+
   return globals[GV] = op;
 }
 
@@ -689,8 +708,8 @@ LogicalResult Importer::processInstruction(llvm::Instruction *inst) {
       ops.push_back(processValue(op.get()));
 
     SmallVector<Value, 4> normalArgs, unwindArgs;
-    processBranchArgs(ii, ii->getNormalDest(), normalArgs);
-    processBranchArgs(ii, ii->getUnwindDest(), unwindArgs);
+    (void)processBranchArgs(ii, ii->getNormalDest(), normalArgs);
+    (void)processBranchArgs(ii, ii->getUnwindDest(), unwindArgs);
 
     Operation *op;
     if (llvm::Function *callee = ii->getCalledFunction()) {
@@ -834,7 +853,7 @@ mlir::translateLLVMIRToModule(std::unique_ptr<llvm::Module> llvmModule,
                               MLIRContext *context) {
   context->loadDialect<LLVMDialect>();
   OwningModuleRef module(ModuleOp::create(
-      FileLineColLoc::get("", /*line=*/0, /*column=*/0, context)));
+      FileLineColLoc::get(context, "", /*line=*/0, /*column=*/0)));
 
   Importer deserializer(context, module.get());
   for (llvm::GlobalVariable &gv : llvmModule->globals()) {

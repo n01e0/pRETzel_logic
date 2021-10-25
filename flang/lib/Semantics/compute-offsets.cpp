@@ -58,9 +58,10 @@ private:
   std::size_t offset_{0};
   std::size_t alignment_{1};
   // symbol -> symbol+offset that determines its location, from EQUIVALENCE
-  std::map<MutableSymbolRef, SymbolAndOffset> dependents_;
+  std::map<MutableSymbolRef, SymbolAndOffset, SymbolAddressCompare> dependents_;
   // base symbol -> SizeAndAlignment for each distinct EQUIVALENCE block
-  std::map<MutableSymbolRef, SizeAndAlignment> equivalenceBlock_;
+  std::map<MutableSymbolRef, SizeAndAlignment, SymbolAddressCompare>
+      equivalenceBlock_;
 };
 
 void ComputeOffsetsHelper::Compute(Scope &scope) {
@@ -303,13 +304,11 @@ auto ComputeOffsetsHelper::GetSizeAndAlignment(
   // of length type parameters).
   auto &foldingContext{context_.foldingContext()};
   if (IsDescriptor(symbol) || IsProcedurePointer(symbol)) {
-    int lenParams{0};
-    if (const auto *derived{evaluate::GetDerivedTypeSpec(
-            evaluate::DynamicType::From(symbol))}) {
-      lenParams = CountLenParameters(*derived);
-    }
-    std::size_t size{
-        runtime::Descriptor::SizeInBytes(symbol.Rank(), false, lenParams)};
+    const auto *derived{
+        evaluate::GetDerivedTypeSpec(evaluate::DynamicType::From(symbol))};
+    int lenParams{derived ? CountLenParameters(*derived) : 0};
+    std::size_t size{runtime::Descriptor::SizeInBytes(
+        symbol.Rank(), derived != nullptr, lenParams)};
     return {size, foldingContext.maxAlignment()};
   }
   if (IsProcedure(symbol)) {
@@ -323,7 +322,7 @@ auto ComputeOffsetsHelper::GetSizeAndAlignment(
             chars->type().GetAlignment(foldingContext)};
       }
     } else { // element size only
-      if (auto size{ToInt64(chars->type().MeasureSizeInBytes(
+      if (auto size{ToInt64(chars->MeasureElementSizeInBytes(
               foldingContext, true /*aligned*/))}) {
         return {static_cast<std::size_t>(*size),
             chars->type().GetAlignment(foldingContext)};

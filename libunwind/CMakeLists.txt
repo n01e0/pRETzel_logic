@@ -24,7 +24,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR OR LIBUNWIND_STANDALONE_B
   project(libunwind LANGUAGES C CXX ASM)
 
   set(PACKAGE_NAME libunwind)
-  set(PACKAGE_VERSION 12.0.1)
+  set(PACKAGE_VERSION 13.0.0git)
   set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
   set(PACKAGE_BUGREPORT "llvm-bugs@lists.llvm.org")
 
@@ -63,6 +63,7 @@ option(LIBUNWIND_ENABLE_THREADS "Build libunwind with threading support." ON)
 option(LIBUNWIND_WEAK_PTHREAD_LIB "Use weak references to refer to pthread functions." OFF)
 option(LIBUNWIND_USE_COMPILER_RT "Use compiler-rt instead of libgcc" OFF)
 option(LIBUNWIND_INCLUDE_DOCS "Build the libunwind documentation." ${LLVM_INCLUDE_DOCS})
+option(LIBUNWIND_INCLUDE_TESTS "Build the libunwind tests." ${LLVM_INCLUDE_TESTS})
 option(LIBUNWIND_IS_BAREMETAL "Build libunwind for baremetal targets." OFF)
 option(LIBUNWIND_USE_FRAME_HEADER_CACHE "Cache frame headers for unwinding. Requires locking dl_iterate_phdr." OFF)
 option(LIBUNWIND_REMEMBER_HEAP_ALLOC "Use heap instead of the stack for .cfi_remember_state." OFF)
@@ -76,7 +77,7 @@ cmake_dependent_option(LIBUNWIND_INSTALL_STATIC_LIBRARY
 cmake_dependent_option(LIBUNWIND_INSTALL_SHARED_LIBRARY
   "Install the shared libunwind library." ON
   "LIBUNWIND_ENABLE_SHARED;LIBUNWIND_INSTALL_LIBRARY" OFF)
-set(LIBUNWIND_TARGET_TRIPLE "" CACHE STRING "Target triple for cross compiling.")
+set(LIBUNWIND_TARGET_TRIPLE "${LLVM_DEFAULT_TARGET_TRIPLE}" CACHE STRING "Target triple for cross compiling.")
 set(LIBUNWIND_GCC_TOOLCHAIN "" CACHE PATH "GCC toolchain for cross compiling.")
 set(LIBUNWIND_SYSROOT "" CACHE PATH "Sysroot for cross compiling.")
 set(LIBUNWIND_TEST_LINKER_FLAGS "" CACHE STRING
@@ -101,7 +102,7 @@ elseif(LIBUNWIND_BUILD_32_BITS)
   message(FATAL_ERROR "LIBUNWIND_BUILD_32_BITS=ON is not supported on this platform.")
 endif()
 
-option(LIBUNWIND_HERMETIC_STATIC_LIBRARY
+option(LIBUNWIND_HIDE_SYMBOLS
   "Do not export any symbols from the static library." OFF)
 
 #===============================================================================
@@ -114,25 +115,26 @@ set(CMAKE_MODULE_PATH
     ${CMAKE_MODULE_PATH})
 
 if(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR AND NOT APPLE)
-  set(LIBUNWIND_LIBRARY_DIR ${LLVM_LIBRARY_OUTPUT_INTDIR}/${LLVM_DEFAULT_TARGET_TRIPLE}/c++)
-  set(LIBUNWIND_INSTALL_LIBRARY_DIR lib${LLVM_LIBDIR_SUFFIX}/${LLVM_DEFAULT_TARGET_TRIPLE}/c++)
+  set(LIBUNWIND_LIBRARY_DIR ${LLVM_LIBRARY_OUTPUT_INTDIR}/${LLVM_DEFAULT_TARGET_TRIPLE})
+  set(LIBUNWIND_INSTALL_LIBRARY_DIR lib${LLVM_LIBDIR_SUFFIX}/${LLVM_DEFAULT_TARGET_TRIPLE} CACHE PATH
+      "Path where built libunwind libraries should be installed.")
   if(LIBCXX_LIBDIR_SUBDIR)
     string(APPEND LIBUNWIND_LIBRARY_DIR /${LIBUNWIND_LIBDIR_SUBDIR})
     string(APPEND LIBUNWIND_INSTALL_LIBRARY_DIR /${LIBUNWIND_LIBDIR_SUBDIR})
   endif()
 elseif(LLVM_LIBRARY_OUTPUT_INTDIR)
   set(LIBUNWIND_LIBRARY_DIR ${LLVM_LIBRARY_OUTPUT_INTDIR})
-  set(LIBUNWIND_INSTALL_LIBRARY_DIR lib${LIBUNWIND_LIBDIR_SUFFIX})
+  set(LIBUNWIND_INSTALL_LIBRARY_DIR lib${LIBUNWIND_LIBDIR_SUFFIX} CACHE PATH
+      "Path where built libunwind libraries should be installed.")
 else()
   set(LIBUNWIND_LIBRARY_DIR ${CMAKE_BINARY_DIR}/lib${LIBUNWIND_LIBDIR_SUFFIX})
-  set(LIBUNWIND_INSTALL_LIBRARY_DIR lib${LIBUNWIND_LIBDIR_SUFFIX})
+  set(LIBUNWIND_INSTALL_LIBRARY_DIR lib${LIBUNWIND_LIBDIR_SUFFIX} CACHE PATH
+      "Path where built libunwind libraries should be installed.")
 endif()
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LIBUNWIND_LIBRARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LIBUNWIND_LIBRARY_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LIBUNWIND_LIBRARY_DIR})
-
-set(LIBUNWIND_INSTALL_PREFIX "" CACHE STRING "Define libunwind destination prefix.")
 
 set(LIBUNWIND_C_FLAGS "")
 set(LIBUNWIND_CXX_FLAGS "")
@@ -150,23 +152,19 @@ include(HandleLibunwindFlags)
 add_target_flags_if(LIBUNWIND_BUILD_32_BITS "-m32")
 
 if(LIBUNWIND_TARGET_TRIPLE)
-  add_target_flags("--target=${LIBUNWIND_TARGET_TRIPLE}")
+  add_target_flags_if_supported("--target=${LIBUNWIND_TARGET_TRIPLE}")
 elseif(CMAKE_CXX_COMPILER_TARGET)
   set(LIBUNWIND_TARGET_TRIPLE "${CMAKE_CXX_COMPILER_TARGET}")
 endif()
 if(LIBUNWIND_GCC_TOOLCHAIN)
-  add_target_flags("--gcc-toolchain=${LIBUNWIND_GCC_TOOLCHAIN}")
+  add_target_flags_if_supported("--gcc-toolchain=${LIBUNWIND_GCC_TOOLCHAIN}")
 elseif(CMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN)
   set(LIBUNWIND_GCC_TOOLCHAIN "${CMAKE_CXX_COMPILER_EXTERNAL_TOOLCHAIN}")
 endif()
 if(LIBUNWIND_SYSROOT)
-  add_target_flags("--sysroot=${LIBUNWIND_SYSROOT}")
+  add_target_flags_if_supported("--sysroot=${LIBUNWIND_SYSROOT}")
 elseif(CMAKE_SYSROOT)
   set(LIBUNWIND_SYSROOT "${CMAKE_SYSROOT}")
-endif()
-
-if (LIBUNWIND_TARGET_TRIPLE)
-  set(TARGET_TRIPLE "${LIBUNWIND_TARGET_TRIPLE}")
 endif()
 
 # Configure compiler.
@@ -320,7 +318,7 @@ endif()
 
 # Disable DLL annotations on Windows for static builds.
 if (WIN32 AND LIBUNWIND_ENABLE_STATIC AND NOT LIBUNWIND_ENABLE_SHARED)
-  add_definitions(-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS)
+  add_definitions(-D_LIBUNWIND_HIDE_SYMBOLS)
 endif()
 
 if (LIBUNWIND_HAS_COMMENT_LIB_PRAGMA)
@@ -344,6 +342,6 @@ if (LIBUNWIND_INCLUDE_DOCS)
   add_subdirectory(docs)
 endif()
 
-if (EXISTS ${LLVM_CMAKE_PATH})
+if (LIBUNWIND_INCLUDE_TESTS AND EXISTS ${LLVM_CMAKE_PATH})
   add_subdirectory(test)
 endif()

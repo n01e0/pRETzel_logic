@@ -62,6 +62,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
@@ -452,18 +453,52 @@ private:
   std::string summarizeSnippet() const {
     if (IsUsingDeclaration)
       return "";
-    // Suppress function argument snippets if args are already present.
-    if ((Completion.Kind == CompletionItemKind::Function ||
-         Completion.Kind == CompletionItemKind::Method ||
-         Completion.Kind == CompletionItemKind::Constructor) &&
-        NextTokenKind == tok::l_paren)
-      return "";
     auto *Snippet = onlyValue<&BundledEntry::SnippetSuffix>();
     if (!Snippet)
       // All bundles are function calls.
       // FIXME(ibiryukov): sometimes add template arguments to a snippet, e.g.
       // we need to complete 'forward<$1>($0)'.
       return "($0)";
+    // Suppress function argument snippets cursor is followed by left
+    // parenthesis (and potentially arguments) or if there are potentially
+    // template arguments. There are cases where it would be wrong (e.g. next
+    // '<' token is a comparison rather than template argument list start) but
+    // it is less common and suppressing snippet provides better UX.
+    if (Completion.Kind == CompletionItemKind::Function ||
+        Completion.Kind == CompletionItemKind::Method ||
+        Completion.Kind == CompletionItemKind::Constructor) {
+      // If there is a potential template argument list, drop snippet and just
+      // complete symbol name. Ideally, this could generate an edit that would
+      // paste function arguments after template argument list but it would be
+      // complicated. Example:
+      //
+      // fu^<int> -> function<int>
+      if (NextTokenKind == tok::less && Snippet->front() == '<')
+        return "";
+      // Potentially followed by argument list.
+      if (NextTokenKind == tok::l_paren) {
+        // If snippet contains template arguments we will emit them and drop
+        // function arguments. Example:
+        //
+        // fu^(42) -> function<int>(42);
+        if (Snippet->front() == '<') {
+          // Find matching '>'. Snippet->find('>') will not work in cases like
+          // template <typename T=std::vector<int>>. Hence, iterate through
+          // the snippet until the angle bracket balance reaches zero.
+          int Balance = 0;
+          size_t I = 0;
+          do {
+            if (Snippet->at(I) == '>')
+              --Balance;
+            else if (Snippet->at(I) == '<')
+              ++Balance;
+            ++I;
+          } while (Balance > 0);
+          return Snippet->substr(0, I);
+        }
+        return "";
+      }
+    }
     if (EnableFunctionArgSnippets)
       return *Snippet;
 
@@ -1071,14 +1106,19 @@ void loadMainFilePreambleMacros(const Preprocessor &PP,
   ExternalPreprocessorSource *PreambleMacros = PP.getExternalSource();
   // As we have the names of the macros, we can look up their IdentifierInfo
   // and then use this to load just the macros we want.
+  const auto &ITable = PP.getIdentifierTable();
   IdentifierInfoLookup *PreambleIdentifiers =
-      PP.getIdentifierTable().getExternalIdentifierLookup();
+      ITable.getExternalIdentifierLookup();
+
   if (!PreambleIdentifiers || !PreambleMacros)
     return;
-  for (const auto &MacroName : Preamble.Macros.Names)
+  for (const auto &MacroName : Preamble.Macros.Names) {
+    if (ITable.find(MacroName.getKey()) != ITable.end())
+      continue;
     if (auto *II = PreambleIdentifiers->get(MacroName.getKey()))
       if (II->isOutOfDate())
         PreambleMacros->updateOutOfDateIdentifier(*II);
+  }
 }
 
 // Invokes Sema code completion on a file.
@@ -1640,7 +1680,7 @@ private:
           C.SemaResult->Kind == CodeCompletionResult::RK_Macro) ||
          (C.IndexResult &&
           C.IndexResult->SymInfo.Kind == index::SymbolKind::Macro)) &&
-        !C.Name.startswith_lower(Filter->pattern()))
+        !C.Name.startswith_insensitive(Filter->pattern()))
       return None;
     return Filter->match(C.Name);
   }
@@ -1869,6 +1909,13 @@ bool isIndexedForCodeCompletion(const NamedDecl &ND, ASTContext &ASTCtx) {
   // We only complete symbol's name, which is the same as the name of the
   // *primary* template in case of template specializations.
   if (isExplicitTemplateSpecialization(&ND))
+    return false;
+
+  // Category decls are not useful on their own outside the interface or
+  // implementation blocks. Moreover, sema already provides completion for
+  // these, even if it requires preamble deserialization. So by excluding them
+  // from the index, we reduce the noise in all the other completion scopes.
+  if (llvm::isa<ObjCCategoryDecl>(&ND) || llvm::isa<ObjCCategoryImplDecl>(&ND))
     return false;
 
   if (InTopLevelScope(ND))

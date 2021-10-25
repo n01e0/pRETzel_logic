@@ -1,4 +1,5 @@
-! RUN: %S/test_symbols.sh %s %t %f18
+! RUN: %S/test_symbols.sh %s %t %flang_fc1
+! REQUIRES: shell
 ! Forward references in pointer initializers and TBP bindings.
 
 !DEF: /m Module
@@ -12,7 +13,7 @@ module m
  !DEF: /m/op1 POINTER, PUBLIC ObjectEntity REAL(4)
  real, pointer :: op1
  !DEF: /m/op2 POINTER, PUBLIC ObjectEntity REAL(4)
- !DEF: /m/null INTRINSIC, PUBLIC (Function) ProcEntity
+ !DEF: /m/null INTRINSIC, PUBLIC, PURE (Function) ProcEntity
  real, pointer :: op2 => null()
  !DEF: /m/op3 POINTER, PUBLIC ObjectEntity REAL(4)
  !DEF: /m/x PUBLIC, TARGET ObjectEntity REAL(4)

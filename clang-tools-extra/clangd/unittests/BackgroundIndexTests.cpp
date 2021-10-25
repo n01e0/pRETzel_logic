@@ -133,8 +133,9 @@ TEST_F(BackgroundIndexTest, Config) {
   Opts.ContextProvider = [](PathRef P) {
     Config C;
     if (P.endswith("foo.cpp"))
-      C.CompileFlags.Edits.push_back(
-          [](std::vector<std::string> &Argv) { Argv.push_back("-Done=two"); });
+      C.CompileFlags.Edits.push_back([](std::vector<std::string> &Argv) {
+        Argv = tooling::getInsertArgumentAdjuster("-Done=two")(Argv, "");
+      });
     if (P.endswith("baz.cpp"))
       C.Index.Background = Config::BackgroundPolicy::Skip;
     return Context::current().derive(Config::Key, std::move(C));
@@ -190,7 +191,6 @@ TEST_F(BackgroundIndexTest, IndexTwoFiles) {
   MemoryShardStorage MSS(Storage, CacheHits);
   OverlayCDB CDB(/*Base=*/nullptr);
   BackgroundIndex::Options Opts;
-  Opts.CollectMainFileRefs = true;
   BackgroundIndex Idx(
       FS, CDB, [&](llvm::StringRef) { return &MSS; }, Opts);
 
@@ -241,52 +241,25 @@ TEST_F(BackgroundIndexTest, MainFileRefs) {
   FS.Files[testPath("root/A.cc")] =
       "#include \"A.h\"\nstatic void main_sym() { (void)header_sym; }";
 
-  // Check the behaviour with CollectMainFileRefs = false (the default
-  // at the SymbolCollector level).
-  {
-    llvm::StringMap<std::string> Storage;
-    size_t CacheHits = 0;
-    MemoryShardStorage MSS(Storage, CacheHits);
-    OverlayCDB CDB(/*Base=*/nullptr);
-    BackgroundIndex Idx(FS, CDB, [&](llvm::StringRef) { return &MSS; },
-                        /*Opts=*/{});
+  llvm::StringMap<std::string> Storage;
+  size_t CacheHits = 0;
+  MemoryShardStorage MSS(Storage, CacheHits);
+  OverlayCDB CDB(/*Base=*/nullptr);
+  BackgroundIndex::Options Opts;
+  BackgroundIndex Idx(
+      FS, CDB, [&](llvm::StringRef) { return &MSS; }, Opts);
 
-    tooling::CompileCommand Cmd;
-    Cmd.Filename = testPath("root/A.cc");
-    Cmd.Directory = testPath("root");
-    Cmd.CommandLine = {"clang++", testPath("root/A.cc")};
-    CDB.setCompileCommand(testPath("root/A.cc"), Cmd);
+  tooling::CompileCommand Cmd;
+  Cmd.Filename = testPath("root/A.cc");
+  Cmd.Directory = testPath("root");
+  Cmd.CommandLine = {"clang++", testPath("root/A.cc")};
+  CDB.setCompileCommand(testPath("root/A.cc"), Cmd);
 
-    ASSERT_TRUE(Idx.blockUntilIdleForTest());
-    EXPECT_THAT(
-        runFuzzyFind(Idx, ""),
-        UnorderedElementsAre(AllOf(Named("header_sym"), NumReferences(1U)),
-                             AllOf(Named("main_sym"), NumReferences(0U))));
-  }
-
-  // Check the behaviour with CollectMainFileRefs = true.
-  {
-    llvm::StringMap<std::string> Storage;
-    size_t CacheHits = 0;
-    MemoryShardStorage MSS(Storage, CacheHits);
-    OverlayCDB CDB(/*Base=*/nullptr);
-    BackgroundIndex::Options Opts;
-    Opts.CollectMainFileRefs = true;
-    BackgroundIndex Idx(
-        FS, CDB, [&](llvm::StringRef) { return &MSS; }, Opts);
-
-    tooling::CompileCommand Cmd;
-    Cmd.Filename = testPath("root/A.cc");
-    Cmd.Directory = testPath("root");
-    Cmd.CommandLine = {"clang++", testPath("root/A.cc")};
-    CDB.setCompileCommand(testPath("root/A.cc"), Cmd);
-
-    ASSERT_TRUE(Idx.blockUntilIdleForTest());
-    EXPECT_THAT(
-        runFuzzyFind(Idx, ""),
-        UnorderedElementsAre(AllOf(Named("header_sym"), NumReferences(1U)),
-                             AllOf(Named("main_sym"), NumReferences(1U))));
-  }
+  ASSERT_TRUE(Idx.blockUntilIdleForTest());
+  EXPECT_THAT(
+      runFuzzyFind(Idx, ""),
+      UnorderedElementsAre(AllOf(Named("header_sym"), NumReferences(1U)),
+                           AllOf(Named("main_sym"), NumReferences(1U))));
 }
 
 TEST_F(BackgroundIndexTest, ShardStorageTest) {
@@ -711,7 +684,7 @@ TEST_F(BackgroundIndexTest, Reindex) {
 class BackgroundIndexRebuilderTest : public testing::Test {
 protected:
   BackgroundIndexRebuilderTest()
-      : Target(std::make_unique<MemIndex>()),
+      : Source(IndexContents::All), Target(std::make_unique<MemIndex>()),
         Rebuilder(&Target, &Source, /*Threads=*/10) {
     // Prepare FileSymbols with TestSymbol in it, for checkRebuild.
     TestSymbol.ID = SymbolID("foo");

@@ -12,7 +12,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Interfaces/InferTypeOpInterface.h"
-
 #include "mlir/IR/BuiltinTypes.h"
 
 using namespace mlir;
@@ -23,7 +22,7 @@ namespace mlir {
 
 LogicalResult mlir::detail::inferReturnTensorTypes(
     function_ref<LogicalResult(
-        MLIRContext *, Optional<Location> location, ValueRange operands,
+        MLIRContext *, Optional<Location> location, ValueShapeRange operands,
         DictionaryAttr attributes, RegionRange regions,
         SmallVectorImpl<ShapedTypeComponents> &retComponents)>
         componentTypeFn,
@@ -55,7 +54,9 @@ LogicalResult mlir::detail::verifyInferredResultTypes(Operation *op) {
     return failure();
   if (!retTypeFn.isCompatibleReturnTypes(inferredReturnTypes,
                                          op->getResultTypes()))
-    return op->emitOpError(
-        "inferred type incompatible with return type of operation");
+    return op->emitOpError("inferred type(s) ")
+           << inferredReturnTypes
+           << " are incompatible with return type(s) of operation "
+           << op->getResultTypes();
   return success();
 }

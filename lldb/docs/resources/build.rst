@@ -12,7 +12,7 @@ Please refer to the `LLVM Getting Started Guide
 general instructions on how to check out the LLVM monorepo, which contains the
 LLDB sources.
 
-Git browser: https://github.com/llvm/llvm-project/tree/master/lldb
+Git browser: https://github.com/llvm/llvm-project/tree/main/lldb
 
 Preliminaries
 -------------
@@ -71,7 +71,7 @@ commands below.
 ::
 
   > yum install libedit-devel libxml2-devel ncurses-devel python-devel swig
-  > sudo apt-get install build-essential subversion swig python3-dev libedit-dev libncurses5-dev
+  > sudo apt-get install build-essential swig python3-dev libedit-dev libncurses5-dev
   > pkg install swig python
   > pkgin install swig python36 cmake ninja-build
   > brew install swig cmake ninja
@@ -133,7 +133,7 @@ macOS
 Building LLDB with CMake
 ------------------------
 
-The LLVM project is migrating to a single monolithic respository for LLVM and
+The LLVM project is migrating to a single monolithic repository for LLVM and
 its subprojects. This is the recommended way to build LLDB. Check out the
 source-tree with git:
 
@@ -326,7 +326,7 @@ CMake scripts and can be useful to reproduce builds for particular use-cases
 A cache is passed to CMake with the ``-C`` flag, following the absolute path to
 the file on disk. Subsequent ``-D`` options are still allowed. Please find the
 currently available caches in the `lldb/cmake/caches/
-<https://github.com/llvm/llvm-project/tree/master/lldb/cmake/caches>`_
+<https://github.com/llvm/llvm-project/tree/main/lldb/cmake/caches>`_
 directory.
 
 Common configurations on macOS

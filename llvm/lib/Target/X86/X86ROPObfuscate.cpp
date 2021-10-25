@@ -242,6 +242,7 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
     dump_type(ty);
   }
   */
+  /*
 
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
   const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP64r;
@@ -337,6 +338,7 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
     default:
       break;
   }
+  */
 
   return Changed;
 }

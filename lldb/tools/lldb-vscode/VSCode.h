@@ -12,10 +12,10 @@
 #include "llvm/Config/llvm-config.h" // for LLVM_ON_UNIX
 
 #include <condition_variable>
+#include <cstdio>
 #include <iosfwd>
 #include <map>
 #include <set>
-#include <stdio.h>
 #include <thread>
 
 #include "llvm/ADT/DenseMap.h"
@@ -49,6 +49,7 @@
 #include "ExceptionBreakpoint.h"
 #include "FunctionBreakpoint.h"
 #include "IOStream.h"
+#include "ProgressEvent.h"
 #include "RunInTerminal.h"
 #include "SourceBreakpoint.h"
 #include "SourceReference.h"
@@ -68,7 +69,10 @@ typedef llvm::DenseMap<uint32_t, SourceBreakpoint> SourceBreakpointMap;
 typedef llvm::StringMap<FunctionBreakpoint> FunctionBreakpointMap;
 enum class OutputType { Console, Stdout, Stderr, Telemetry };
 
-enum VSCodeBroadcasterBits { eBroadcastBitStopEventThread = 1u << 0 };
+enum VSCodeBroadcasterBits {
+  eBroadcastBitStopEventThread = 1u << 0,
+  eBroadcastBitStopProgressThread = 1u << 1
+};
 
 typedef void (*RequestCallback)(const llvm::json::Object &command);
 
@@ -91,6 +95,7 @@ struct VSCode {
   int64_t num_locals;
   int64_t num_globals;
   std::thread event_thread;
+  std::thread progress_event_thread;
   std::unique_ptr<std::ofstream> log;
   llvm::DenseMap<lldb::addr_t, int64_t> addr_to_source_ref;
   llvm::DenseMap<int64_t, SourceReference> source_map;
@@ -109,6 +114,7 @@ struct VSCode {
   uint32_t reverse_request_seq;
   std::map<std::string, RequestCallback> request_handlers;
   bool waiting_for_run_in_terminal;
+  ProgressEventReporter progress_event_reporter;
   // Keep track of the last stop thread index IDs as threads won't go away
   // unless we send a "thread" event to indicate the thread exited.
   llvm::DenseSet<lldb::tid_t> thread_ids;
@@ -119,10 +125,6 @@ struct VSCode {
   int64_t GetLineForPC(int64_t sourceReference, lldb::addr_t pc) const;
   ExceptionBreakpoint *GetExceptionBreakpoint(const std::string &filter);
   ExceptionBreakpoint *GetExceptionBreakpoint(const lldb::break_id_t bp_id);
-  // Send the JSON in "json_str" to the "out" stream. Correctly send the
-  // "Content-Length:" field followed by the length, followed by the raw
-  // JSON bytes.
-  void SendJSON(const std::string &json_str);
 
   // Serialize the JSON value into a string and send the JSON packet to
   // the "out" stream.
@@ -131,6 +133,9 @@ struct VSCode {
   std::string ReadJSON();
 
   void SendOutput(OutputType o, const llvm::StringRef output);
+
+  void SendProgressEvent(uint64_t progress_id, const char *message,
+                         uint64_t completed, uint64_t total);
 
   void __attribute__((format(printf, 3, 4)))
   SendFormattedOutput(OutputType o, const char *format, ...);
@@ -200,6 +205,12 @@ struct VSCode {
   ///     The callback to execute when the given request is triggered by the
   ///     IDE.
   void RegisterRequestCallback(std::string request, RequestCallback callback);
+
+private:
+  // Send the JSON in "json_str" to the "out" stream. Correctly send the
+  // "Content-Length:" field followed by the length, followed by the raw
+  // JSON bytes.
+  void SendJSON(const std::string &json_str);
 };
 
 extern VSCode g_vsc;

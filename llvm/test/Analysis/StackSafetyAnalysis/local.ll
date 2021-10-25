@@ -71,7 +71,7 @@ define void @StoreInBounds4() {
 ; CHECK-LABEL: @StoreInBounds4 dso_preemptable{{$}}
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
-; CHECK-NEXT: x[4]: [-9223372036854775808,9223372036854775807){{$}}
+; CHECK-NEXT: x[4]: full-set{{$}}
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -205,7 +205,7 @@ define void @NonConstantOffset(i1 zeroext %z) {
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
 ; FIXME: SCEV can't look through selects.
-; CHECK-NEXT: x[4]: [-4,4){{$}}
+; CHECK-NEXT: x[4]: [0,4){{$}}
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4
@@ -246,7 +246,7 @@ define void @NonConstantOffsetOOB(i1 zeroext %z) {
 ; CHECK-LABEL: @NonConstantOffsetOOB dso_preemptable{{$}}
 ; CHECK-NEXT: args uses:
 ; CHECK-NEXT: allocas uses:
-; CHECK-NEXT: x[4]: [-8,8){{$}}
+; CHECK-NEXT: x[4]: [0,6){{$}}
 ; CHECK-EMPTY:
 entry:
   %x = alloca i32, align 4

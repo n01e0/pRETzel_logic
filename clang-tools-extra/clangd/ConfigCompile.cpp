@@ -28,7 +28,7 @@
 #include "ConfigFragment.h"
 #include "ConfigProvider.h"
 #include "Diagnostics.h"
-#include "Features.inc"
+#include "Features.h"
 #include "TidyProvider.h"
 #include "support/Logger.h"
 #include "support/Path.h"
@@ -47,6 +47,7 @@
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/SourceMgr.h"
+#include <algorithm>
 #include <string>
 
 namespace clang {
@@ -194,6 +195,7 @@ struct FragmentCompiler {
     compile(std::move(F.CompileFlags));
     compile(std::move(F.Index));
     compile(std::move(F.Diagnostics));
+    compile(std::move(F.Completion));
   }
 
   void compile(Fragment::IfBlock &&F) {
@@ -269,7 +271,9 @@ struct FragmentCompiler {
         Add.push_back(std::move(*A));
       Out.Apply.push_back([Add(std::move(Add))](const Params &, Config &C) {
         C.CompileFlags.Edits.push_back([Add](std::vector<std::string> &Args) {
-          Args.insert(Args.end(), Add.begin(), Add.end());
+          // The point to insert at. Just append when `--` isn't present.
+          auto It = llvm::find(Args, "--");
+          Args.insert(It, Add.begin(), Add.end());
         });
       });
     }
@@ -337,10 +341,11 @@ struct FragmentCompiler {
     }
 #endif
     // Make sure exactly one of the Sources is set.
-    unsigned SourceCount =
-        External.File.hasValue() + External.Server.hasValue();
+    unsigned SourceCount = External.File.hasValue() +
+                           External.Server.hasValue() + *External.IsNone;
     if (SourceCount != 1) {
-      diag(Error, "Exactly one of File or Server must be set.", BlockRange);
+      diag(Error, "Exactly one of File, Server or None must be set.",
+           BlockRange);
       return;
     }
     Config::ExternalIndexSpec Spec;
@@ -354,20 +359,29 @@ struct FragmentCompiler {
       if (!AbsPath)
         return;
       Spec.Location = std::move(*AbsPath);
+    } else {
+      assert(*External.IsNone);
+      Spec.Kind = Config::ExternalIndexSpec::None;
     }
-    // Make sure MountPoint is an absolute path with forward slashes.
-    if (!External.MountPoint)
-      External.MountPoint.emplace(FragmentDirectory);
-    if ((**External.MountPoint).empty()) {
-      diag(Error, "A mountpoint is required.", BlockRange);
-      return;
+    if (Spec.Kind != Config::ExternalIndexSpec::None) {
+      // Make sure MountPoint is an absolute path with forward slashes.
+      if (!External.MountPoint)
+        External.MountPoint.emplace(FragmentDirectory);
+      if ((**External.MountPoint).empty()) {
+        diag(Error, "A mountpoint is required.", BlockRange);
+        return;
+      }
+      auto AbsPath = makeAbsolute(std::move(*External.MountPoint), "MountPoint",
+                                  llvm::sys::path::Style::posix);
+      if (!AbsPath)
+        return;
+      Spec.MountPoint = std::move(*AbsPath);
     }
-    auto AbsPath = makeAbsolute(std::move(*External.MountPoint), "MountPoint",
-                                llvm::sys::path::Style::posix);
-    if (!AbsPath)
-      return;
-    Spec.MountPoint = std::move(*AbsPath);
     Out.Apply.push_back([Spec(std::move(Spec))](const Params &P, Config &C) {
+      if (Spec.Kind == Config::ExternalIndexSpec::None) {
+        C.Index.External = Spec;
+        return;
+      }
       if (P.Path.empty() || !pathStartsWith(Spec.MountPoint, P.Path,
                                             llvm::sys::path::Style::posix))
         return;
@@ -380,7 +394,7 @@ struct FragmentCompiler {
   }
 
   void compile(Fragment::DiagnosticsBlock &&F) {
-    std::vector<llvm::StringRef> Normalized;
+    std::vector<std::string> Normalized;
     for (const auto &Suppressed : F.Suppress) {
       if (*Suppressed == "*") {
         Out.Apply.push_back([&](const Params &, Config &C) {
@@ -389,15 +403,16 @@ struct FragmentCompiler {
         });
         return;
       }
-      Normalized.push_back(normalizeSuppressedCode(*Suppressed));
+      Normalized.push_back(normalizeSuppressedCode(*Suppressed).str());
     }
     if (!Normalized.empty())
-      Out.Apply.push_back([Normalized](const Params &, Config &C) {
-        if (C.Diagnostics.SuppressAll)
-          return;
-        for (llvm::StringRef N : Normalized)
-          C.Diagnostics.Suppress.insert(N);
-      });
+      Out.Apply.push_back(
+          [Normalized(std::move(Normalized))](const Params &, Config &C) {
+            if (C.Diagnostics.SuppressAll)
+              return;
+            for (llvm::StringRef N : Normalized)
+              C.Diagnostics.Suppress.insert(N);
+          });
 
     compile(std::move(F.ClangTidy));
   }
@@ -469,6 +484,15 @@ struct FragmentCompiler {
             for (auto &StringPair : CheckOptions)
               C.Diagnostics.ClangTidy.CheckOptions.insert_or_assign(
                   StringPair.first, StringPair.second);
+          });
+    }
+  }
+
+  void compile(Fragment::CompletionBlock &&F) {
+    if (F.AllScopes) {
+      Out.Apply.push_back(
+          [AllScopes(**F.AllScopes)](const Params &, Config &C) {
+            C.Completion.AllScopes = AllScopes;
           });
     }
   }

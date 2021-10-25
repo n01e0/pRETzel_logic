@@ -462,9 +462,6 @@ TEST(SelectionTest, CommonAncestor) {
     TestTU TU;
     TU.Code = std::string(Test.code());
 
-    // FIXME: Auto-completion in a template requires disabling delayed template
-    // parsing.
-    TU.ExtraArgs.push_back("-fno-delayed-template-parsing");
     TU.ExtraArgs.push_back("-xobjective-c++");
 
     auto AST = TU.build();
@@ -584,7 +581,7 @@ TEST(SelectionTest, PathologicalPreprocessor) {
   auto TU = TestTU::withCode(Test.code());
   TU.AdditionalFiles["Expand.inc"] = "MACRO\n";
   auto AST = TU.build();
-  EXPECT_THAT(AST.getDiagnostics(), ::testing::IsEmpty());
+  EXPECT_THAT(*AST.getDiagnostics(), ::testing::IsEmpty());
   auto T = makeSelectionTree(Case, AST);
 
   EXPECT_EQ("BreakStmt", T.commonAncestor()->kind());
@@ -662,10 +659,11 @@ TEST(SelectionTest, CreateAll) {
       AST.getASTContext(), AST.getTokens(), Test.point("ambiguous"),
       Test.point("ambiguous"), [&](SelectionTree T) {
         // Expect to see the right-biased tree first.
-        if (Seen == 0)
+        if (Seen == 0) {
           EXPECT_EQ("BinaryOperator", nodeKind(T.commonAncestor()));
-        else if (Seen == 1)
+        } else if (Seen == 1) {
           EXPECT_EQ("IntegerLiteral", nodeKind(T.commonAncestor()));
+        }
         ++Seen;
         return false;
       });

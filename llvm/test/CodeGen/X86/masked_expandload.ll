@@ -1117,10 +1117,10 @@ define <16 x double> @expandload_v16f64_v16i32(double* %base, <16 x double> %src
 define <2 x float> @expandload_v2f32_v2i1(float* %base, <2 x float> %src0, <2 x i32> %trigger) {
 ; SSE2-LABEL: expandload_v2f32_v2i1:
 ; SSE2:       ## %bb.0:
+; SSE2-NEXT:    pshufd {{.*#+}} xmm1 = xmm1[0,0,1,1]
 ; SSE2-NEXT:    pxor %xmm2, %xmm2
 ; SSE2-NEXT:    pcmpeqd %xmm1, %xmm2
-; SSE2-NEXT:    pshufd {{.*#+}} xmm1 = xmm2[0,0,1,1]
-; SSE2-NEXT:    movmskpd %xmm1, %eax
+; SSE2-NEXT:    movmskpd %xmm2, %eax
 ; SSE2-NEXT:    testb $1, %al
 ; SSE2-NEXT:    jne LBB4_1
 ; SSE2-NEXT:  ## %bb.2: ## %else
@@ -3510,7 +3510,7 @@ define <16 x i8> @expandload_v16i8_v16i8(i8* %base, <16 x i8> %src0, <16 x i8> %
 ; SSE2-NEXT:    testl $32768, %eax ## imm = 0x8000
 ; SSE2-NEXT:    je LBB12_32
 ; SSE2-NEXT:  LBB12_31: ## %cond.load57
-; SSE2-NEXT:    pand {{.*}}(%rip), %xmm0
+; SSE2-NEXT:    pand {{\.?LCPI[0-9]+_[0-9]+}}(%rip), %xmm0
 ; SSE2-NEXT:    movzbl (%rdi), %eax
 ; SSE2-NEXT:    movd %eax, %xmm1
 ; SSE2-NEXT:    pslldq {{.*#+}} xmm1 = zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,zero,xmm1[0]

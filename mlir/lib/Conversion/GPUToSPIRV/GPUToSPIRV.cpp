@@ -85,6 +85,19 @@ public:
                   ConversionPatternRewriter &rewriter) const override;
 };
 
+class GPUModuleEndConversion final
+    : public OpConversionPattern<gpu::ModuleEndOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(gpu::ModuleEndOp endOp, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.eraseOp(endOp);
+    return success();
+  }
+};
+
 /// Pattern to convert a gpu.return into a SPIR-V return.
 // TODO: This can go to DRR when GPU return has operands.
 class GPUReturnOpConversion final : public OpConversionPattern<gpu::ReturnOp> {
@@ -194,8 +207,8 @@ lowerAsEntryFunction(gpu::GPUFuncOp funcOp, TypeConverter &typeConverter,
       funcOp.getLoc(), funcOp.getName(),
       rewriter.getFunctionType(signatureConverter.getConvertedTypes(),
                                llvm::None));
-  for (const auto &namedAttr : funcOp.getAttrs()) {
-    if (namedAttr.first == impl::getTypeAttrName() ||
+  for (const auto &namedAttr : funcOp->getAttrs()) {
+    if (namedAttr.first == function_like_impl::getTypeAttrName() ||
         namedAttr.first == SymbolTable::getSymbolAttrName())
       continue;
     newFuncOp->setAttr(namedAttr.first, namedAttr.second);
@@ -208,7 +221,13 @@ lowerAsEntryFunction(gpu::GPUFuncOp funcOp, TypeConverter &typeConverter,
     return nullptr;
   rewriter.eraseOp(funcOp);
 
-  spirv::setABIAttrs(newFuncOp, entryPointInfo, argABIInfo);
+  // Set the attributes for argument and the function.
+  StringRef argABIAttrName = spirv::getInterfaceVarABIAttrName();
+  for (auto argIndex : llvm::seq<unsigned>(0, argABIInfo.size())) {
+    newFuncOp.setArgAttr(argIndex, argABIAttrName, argABIInfo[argIndex]);
+  }
+  newFuncOp->setAttr(spirv::getEntryPointABIAttrName(), entryPointInfo);
+
   return newFuncOp;
 }
 
@@ -269,8 +288,8 @@ LogicalResult GPUFuncOpConversion::matchAndRewrite(
       funcOp, *getTypeConverter(), rewriter, entryPointAttr, argABI);
   if (!newFuncOp)
     return failure();
-  newFuncOp.removeAttr(Identifier::get(gpu::GPUDialect::getKernelFuncAttrName(),
-                                       rewriter.getContext()));
+  newFuncOp->removeAttr(Identifier::get(
+      gpu::GPUDialect::getKernelFuncAttrName(), rewriter.getContext()));
   return success();
 }
 
@@ -295,12 +314,10 @@ LogicalResult GPUModuleConversion::matchAndRewrite(
       StringRef(spvModuleName));
 
   // Move the region from the module op into the SPIR-V module.
-  Region &spvModuleRegion = spvModule.body();
+  Region &spvModuleRegion = spvModule.getRegion();
   rewriter.inlineRegionBefore(moduleOp.body(), spvModuleRegion,
                               spvModuleRegion.begin());
-  // The spv.module build method adds a block with a terminator. Remove that
-  // block. The terminator of the module op in the remaining block will be
-  // legalized later.
+  // The spv.module build method adds a block. Remove that.
   rewriter.eraseBlock(&spvModuleRegion.back());
   rewriter.eraseOp(moduleOp);
   return success();
@@ -324,16 +341,11 @@ LogicalResult GPUReturnOpConversion::matchAndRewrite(
 // GPU To SPIRV Patterns.
 //===----------------------------------------------------------------------===//
 
-namespace {
-#include "GPUToSPIRV.cpp.inc"
-}
-
-void mlir::populateGPUToSPIRVPatterns(MLIRContext *context,
-                                      SPIRVTypeConverter &typeConverter,
-                                      OwningRewritePatternList &patterns) {
-  populateWithGenerated(context, patterns);
-  patterns.insert<
-      GPUFuncOpConversion, GPUModuleConversion, GPUReturnOpConversion,
+void mlir::populateGPUToSPIRVPatterns(SPIRVTypeConverter &typeConverter,
+                                      RewritePatternSet &patterns) {
+  patterns.add<
+      GPUFuncOpConversion, GPUModuleConversion, GPUModuleEndConversion,
+      GPUReturnOpConversion,
       LaunchConfigConversion<gpu::BlockIdOp, spirv::BuiltIn::WorkgroupId>,
       LaunchConfigConversion<gpu::GridDimOp, spirv::BuiltIn::NumWorkgroups>,
       LaunchConfigConversion<gpu::ThreadIdOp,
@@ -344,5 +356,5 @@ void mlir::populateGPUToSPIRVPatterns(MLIRContext *context,
                                       spirv::BuiltIn::NumSubgroups>,
       SingleDimLaunchConfigConversion<gpu::SubgroupSizeOp,
                                       spirv::BuiltIn::SubgroupSize>,
-      WorkGroupSizeConversion>(typeConverter, context);
+      WorkGroupSizeConversion>(typeConverter, patterns.getContext());
 }

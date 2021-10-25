@@ -1,4 +1,5 @@
-! RUN: %S/test_symbols.sh %s %t %f18
+! RUN: %S/test_symbols.sh %s %t %flang_fc1
+! REQUIRES: shell
 ! Old-style "*length" specifiers (R723)
 
 !DEF: /f1 (Function) Subprogram CHARACTER(1_8,1)
@@ -10,7 +11,7 @@ character*1 function f1(x1, x2)
  !REF: /f1/n
  !REF: /f1/x1
  !REF: /f1/x2
- !DEF: /f1/len INTRINSIC (Function) ProcEntity
+ !DEF: /f1/len ELEMENTAL, INTRINSIC, PURE (Function) ProcEntity
  character*(n), intent(in) :: x1, x2*(len(x1)+1)
  !DEF: /f1/t DerivedType
  type :: t

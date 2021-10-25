@@ -132,6 +132,22 @@ std::optional<ConstantSubscripts> AsConstantExtents(
   }
 }
 
+Shape AsShape(const ConstantSubscripts &shape) {
+  Shape result;
+  for (const auto &extent : shape) {
+    result.emplace_back(ExtentExpr{extent});
+  }
+  return result;
+}
+
+std::optional<Shape> AsShape(const std::optional<ConstantSubscripts> &shape) {
+  if (shape) {
+    return AsShape(*shape);
+  } else {
+    return std::nullopt;
+  }
+}
+
 Shape Fold(FoldingContext &context, Shape &&shape) {
   for (auto &dim : shape) {
     dim = Fold(context, std::move(dim));
@@ -190,6 +206,14 @@ MaybeExtentExpr GetSize(Shape &&shape) {
   return extent;
 }
 
+ConstantSubscript GetSize(const ConstantSubscripts &shape) {
+  ConstantSubscript size{1};
+  for (auto dim : std::move(shape)) {
+    size *= dim;
+  }
+  return size;
+}
+
 bool ContainsAnyImpliedDoIndex(const ExtentExpr &expr) {
   struct MyVisitor : public AnyTraverse<MyVisitor> {
     using Base = AnyTraverse<MyVisitor>;
@@ -202,7 +226,7 @@ bool ContainsAnyImpliedDoIndex(const ExtentExpr &expr) {
 
 // Determines lower bound on a dimension.  This can be other than 1 only
 // for a reference to a whole array object or component. (See LBOUND, 16.9.109).
-// ASSOCIATE construct entities may require tranversal of their referents.
+// ASSOCIATE construct entities may require traversal of their referents.
 class GetLowerBoundHelper : public Traverse<GetLowerBoundHelper, ExtentExpr> {
 public:
   using Result = ExtentExpr;
@@ -296,27 +320,31 @@ MaybeExtentExpr GetExtent(const NamedEntity &base, int dimension) {
   CHECK(dimension >= 0);
   const Symbol &symbol{ResolveAssociations(base.GetLastSymbol())};
   if (const auto *details{symbol.detailsIf<semantics::ObjectEntityDetails>()}) {
-    if (IsImpliedShape(symbol)) {
-      Shape shape{GetShape(symbol).value()};
-      return std::move(shape.at(dimension));
-    }
-    int j{0};
-    for (const auto &shapeSpec : details->shape()) {
-      if (j++ == dimension) {
-        if (shapeSpec.ubound().isExplicit()) {
-          if (const auto &ubound{shapeSpec.ubound().GetExplicit()}) {
-            if (const auto &lbound{shapeSpec.lbound().GetExplicit()}) {
-              return common::Clone(ubound.value()) -
-                  common::Clone(lbound.value()) + ExtentExpr{1};
-            } else {
-              return ubound.value();
+    if (IsImpliedShape(symbol) && details->init()) {
+      if (auto shape{GetShape(symbol)}) {
+        if (dimension < static_cast<int>(shape->size())) {
+          return std::move(shape->at(dimension));
+        }
+      }
+    } else {
+      int j{0};
+      for (const auto &shapeSpec : details->shape()) {
+        if (j++ == dimension) {
+          if (shapeSpec.ubound().isExplicit()) {
+            if (const auto &ubound{shapeSpec.ubound().GetExplicit()}) {
+              if (const auto &lbound{shapeSpec.lbound().GetExplicit()}) {
+                return common::Clone(ubound.value()) -
+                    common::Clone(lbound.value()) + ExtentExpr{1};
+              } else {
+                return ubound.value();
+              }
             }
+          } else if (details->IsAssumedSize() && j == symbol.Rank()) {
+            return std::nullopt;
+          } else if (semantics::IsDescriptor(symbol)) {
+            return ExtentExpr{DescriptorInquiry{NamedEntity{base},
+                DescriptorInquiry::Field::Extent, dimension}};
           }
-        } else if (details->IsAssumedSize() && j == symbol.Rank()) {
-          return std::nullopt;
-        } else if (semantics::IsDescriptor(symbol)) {
-          return ExtentExpr{DescriptorInquiry{
-              NamedEntity{base}, DescriptorInquiry::Field::Extent, dimension}};
         }
       }
     }
@@ -373,7 +401,7 @@ MaybeExtentExpr GetExtent(FoldingContext &context, const Subscript &subscript,
 MaybeExtentExpr ComputeUpperBound(
     ExtentExpr &&lower, MaybeExtentExpr &&extent) {
   if (extent) {
-    return std::move(*extent) - std::move(lower) + ExtentExpr{1};
+    return std::move(*extent) + std::move(lower) - ExtentExpr{1};
   } else {
     return std::nullopt;
   }
@@ -449,7 +477,7 @@ auto GetShapeHelper::operator()(const Symbol &symbol) const -> Result {
   return std::visit(
       common::visitors{
           [&](const semantics::ObjectEntityDetails &object) {
-            if (IsImpliedShape(symbol)) {
+            if (IsImpliedShape(symbol) && object.init()) {
               return (*this)(object.init());
             } else {
               int n{object.shape().Rank()};
@@ -486,16 +514,10 @@ auto GetShapeHelper::operator()(const Symbol &symbol) const -> Result {
           [&](const semantics::ProcBindingDetails &binding) {
             return (*this)(binding.symbol());
           },
-          [&](const semantics::UseDetails &use) {
-            return (*this)(use.symbol());
-          },
-          [&](const semantics::HostAssocDetails &assoc) {
-            return (*this)(assoc.symbol());
-          },
           [](const semantics::TypeParamDetails &) { return ScalarShape(); },
           [](const auto &) { return Result{}; },
       },
-      symbol.details());
+      symbol.GetUltimate().details());
 }
 
 auto GetShapeHelper::operator()(const Component &component) const -> Result {
@@ -720,7 +742,7 @@ auto GetShapeHelper::operator()(const ProcedureRef &call) const -> Result {
               auto sourceBytes{
                   sourceTypeAndShape->MeasureSizeInBytes(*context_)};
               auto moldElementBytes{
-                  moldTypeAndShape->type().MeasureSizeInBytes(*context_, true)};
+                  moldTypeAndShape->MeasureElementSizeInBytes(*context_, true)};
               if (sourceBytes && moldElementBytes) {
                 ExtentExpr extent{Fold(*context_,
                     (std::move(*sourceBytes) +
@@ -755,18 +777,16 @@ auto GetShapeHelper::operator()(const ProcedureRef &call) const -> Result {
   return std::nullopt;
 }
 
-// Check conformance of the passed shapes.  Only return true if we can verify
-// that they conform
-bool CheckConformance(parser::ContextualMessages &messages, const Shape &left,
-    const Shape &right, const char *leftIs, const char *rightIs,
-    bool leftScalarExpandable, bool rightScalarExpandable,
-    bool leftIsDeferredShape, bool rightIsDeferredShape) {
+// Check conformance of the passed shapes.
+std::optional<bool> CheckConformance(parser::ContextualMessages &messages,
+    const Shape &left, const Shape &right, CheckConformanceFlags::Flags flags,
+    const char *leftIs, const char *rightIs) {
   int n{GetRank(left)};
-  if (n == 0 && leftScalarExpandable) {
+  if (n == 0 && (flags & CheckConformanceFlags::LeftScalarExpandable)) {
     return true;
   }
   int rn{GetRank(right)};
-  if (rn == 0 && rightScalarExpandable) {
+  if (rn == 0 && (flags & CheckConformanceFlags::RightScalarExpandable)) {
     return true;
   }
   if (n != rn) {
@@ -783,11 +803,11 @@ bool CheckConformance(parser::ContextualMessages &messages, const Shape &left,
               j + 1, leftIs, *leftDim, rightIs, *rightDim);
           return false;
         }
-      } else if (!rightIsDeferredShape) {
-        return false;
+      } else if (!(flags & CheckConformanceFlags::RightIsDeferredShape)) {
+        return std::nullopt;
       }
-    } else if (!leftIsDeferredShape) {
-      return false;
+    } else if (!(flags & CheckConformanceFlags::LeftIsDeferredShape)) {
+      return std::nullopt;
     }
   }
   return true;
@@ -810,4 +830,5 @@ bool IncrementSubscripts(
   }
   return false;
 }
+
 } // namespace Fortran::evaluate

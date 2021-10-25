@@ -33,6 +33,10 @@ static unsigned getNestingDepth(Operation *op) {
 class TestLoopUnrollingPass
     : public PassWrapper<TestLoopUnrollingPass, FunctionPass> {
 public:
+  StringRef getArgument() const final { return "test-loop-unrolling"; }
+  StringRef getDescription() const final {
+    return "Tests loop unrolling transformation";
+  }
   TestLoopUnrollingPass() = default;
   TestLoopUnrollingPass(const TestLoopUnrollingPass &) {}
   explicit TestLoopUnrollingPass(uint64_t unrollFactorParam,
@@ -48,9 +52,8 @@ public:
       if (getNestingDepth(forOp) == loopDepth)
         loops.push_back(forOp);
     });
-    for (auto loop : loops) {
-      loopUnrollByFactor(loop, unrollFactor);
-    }
+    for (auto loop : loops)
+      (void)loopUnrollByFactor(loop, unrollFactor);
   }
   Option<uint64_t> unrollFactor{*this, "unroll-factor",
                                 llvm::cl::desc("Loop unroll factor."),
@@ -66,8 +69,7 @@ public:
 namespace mlir {
 namespace test {
 void registerTestLoopUnrollingPass() {
-  PassRegistration<TestLoopUnrollingPass>(
-      "test-loop-unrolling", "Tests loop unrolling transformation");
+  PassRegistration<TestLoopUnrollingPass>();
 }
 } // namespace test
 } // namespace mlir

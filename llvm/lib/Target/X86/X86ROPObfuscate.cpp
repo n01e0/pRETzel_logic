@@ -422,7 +422,6 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
 bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI) {
   bool Changed = false;
 
-  /*
   if (MI.getNumOperands() != 1)
     return Changed;
 
@@ -469,7 +468,6 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
     addRegOffset(BuildMI(*MBB, MBB->erase(MI), DL, TII->get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
     Changed = true;
   }
-  */
   
   return Changed;
 }

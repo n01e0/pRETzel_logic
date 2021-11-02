@@ -73,6 +73,8 @@ static inline void dump_type(const MachineOperand::MachineOperandType &Ty);
 // removes operands that are currently not needed
 static inline void filter_operand(MachineInstr &MI);
 
+MachineBasicBlock::iterator skipFilter(MachineBasicBlock *MBB, bool (*filt)(const MachineInstr&));
+
 namespace {
 class X86ROPObfuscatePass : public MachineFunctionPass {
 public:
@@ -228,6 +230,13 @@ static inline void filter_operand(MachineInstr &MI) {
   }
 }
 
+MachineBasicBlock::iterator skipFilter(MachineBasicBlock *MBB, bool (*filt)(const MachineInstr &)) {
+  auto I = MBB->instr_rbegin();
+  while (I!= MBB->instr_rend() && !filt(*I))
+    ++I;
+  return MachineBasicBlock::iterator(MachineBasicBlock::reverse_iterator(I));
+}
+
 bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI) {
   bool Changed = false;
 
@@ -246,6 +255,7 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
   const unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
 
   filter_operand(MI);
+
   assert(MI.getNumOperands() > 0 && "filter_operand failed");
     
   auto SymName = ".callee_recover_" + MF.getName() + std::to_string(SymId++);
@@ -257,30 +267,43 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
   MachineOperand &Callee = MI.getOperand(0);
 
   switch (Callee.getType()) {
+    /*
+     * sub rsp, RetValOffset 
+     * push WorkReg
+     * mov WorkReg, Callee
+     * mov [rsp+CalleeOffset], WorkReg
+     * mov WorkReg, CalleeRecoverSym
+     * mov [rsp+RetValOffset], WorkReg,
+     * pop WorkReg
+     * ret
+     *
+     * Since we are using reverse_iterator, we need to build the instructions in the reverse direction.
+     *
+     */
     case MachineOperand::MO_Register:
       // Register indirect call
       if (MI.getNumOperands() == 1) { 
         Register OpReg = Callee.getReg();
-        // push WorkReg
-        BuildMI(*MBB, --MBB->instr_end(), DL, TII->get(PushOpc))
+        // ret
+        auto MIB = BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(RetOpc));
+        // pop WorkReg 
+        BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(PopOpc))
           .addReg(WorkReg);
-        // mov WorkReg, Callee  
-        BuildMI(*MBB, --MBB->instr_end(), DL, TII->get(MovrrOpc), WorkReg)
-          .addReg(OpReg);
-        // mov [rsp+CalleeOffset], WorkReg 
-        addRegOffset(BuildMI(*MBB, --MBB->instr_end(), DL, TII->get(MovmrOpc)), StackPtr, true, CalleeOffset)
+        // mov [rsp+RetValOffset], WorkReg
+        addRegOffset(BuildMI(*MBB, skipFilter(MBB, isCALL),  DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
           .addReg(WorkReg);
         // mov WorkReg, CalleeRecoverSym
-        BuildMI(*MBB, --MBB->instr_end(), DL, TII->get(MovriOpc), WorkReg)
+        BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovriOpc), WorkReg)
           .addSym(CalleeRecoverSym);
-        // mov [rsp+RetValOffset], WorkReg
-        addRegOffset(BuildMI(*MBB, --MBB->instr_end(),  DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
+        // mov [rsp+CalleeOffset], WorkReg 
+        addRegOffset(BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovmrOpc)), StackPtr, true, CalleeOffset)
           .addReg(WorkReg);
-        // pop WorkReg 
-        BuildMI(*MBB, --MBB->instr_end(), DL, TII->get(PopOpc))
+        // mov WorkReg, Callee  
+        BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovrrOpc), WorkReg)
+          .addReg(OpReg);
+        // push WorkReg
+        BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(PushOpc))
           .addReg(WorkReg);
-        // ret
-        auto MIB = BuildMI(*MBB, --MBB->instr_end(), DL, TII->get(RetOpc));
         // replace call to stack allocate
         BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
           .addReg(StackPtr)
@@ -291,28 +314,28 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
 
       } else {
         // with offset
-        // push WorkReg
-        BuildMI(*MBB, --MBB->instr_end(),  DL, TII->get(PushOpc))
+        // ret
+        auto MIB = BuildMI(*MBB, skipFilter(MBB, isCALL),  DL, TII->get(RetOpc));
+        // pop WorkReg 
+        BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(PopOpc))
           .addReg(WorkReg);
-        // lea WorkReg, Callee
-        auto MIB = BuildMI(*MBB, --MBB->instr_end(), DL, TII->get(MovrmOpc), WorkReg);
-        for (unsigned i = 0; i < MI.getNumOperands(); i++)
-          MIB.add(MI.getOperand(i));
-
-        // mov [rsp+CalleeOffset], WorkReg 
-        addRegOffset(BuildMI(*MBB, --MBB->instr_end(), DL, TII->get(MovmrOpc)), StackPtr, true, CalleeOffset)
+        // mov [rsp+RetValOffset], WorkReg
+        addRegOffset(BuildMI(*MBB, skipFilter(MBB, isCALL),  DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
           .addReg(WorkReg);
         // mov WorkReg, CalleeRecoverSym
-        BuildMI(*MBB, --MBB->instr_end(),  DL, TII->get(MovriOpc), WorkReg)
+        BuildMI(*MBB, skipFilter(MBB, isCALL),  DL, TII->get(MovriOpc), WorkReg)
           .addSym(CalleeRecoverSym);
-        // mov [rsp+RetValOffset], WorkReg
-        addRegOffset(BuildMI(*MBB, --MBB->instr_end(),  DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
+        // mov [rsp+CalleeOffset], WorkReg 
+        addRegOffset(BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovmrOpc)), StackPtr, true, CalleeOffset)
           .addReg(WorkReg);
-        // pop WorkReg 
-        BuildMI(*MBB, --MBB->instr_end(), DL, TII->get(PopOpc))
+        // lea WorkReg, Callee
+        auto LeaMIB = BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovrmOpc), WorkReg);
+        for (unsigned i = 0; i < MI.getNumOperands(); i++)
+          LeaMIB.add(MI.getOperand(i));
+        // push WorkReg
+        BuildMI(*MBB, skipFilter(MBB, isCALL),  DL, TII->get(PushOpc))
           .addReg(WorkReg);
-        // ret
-        MIB = BuildMI(*MBB, --MBB->instr_end(),  DL, TII->get(RetOpc));
+
         MIB.getInstr()->setPostInstrSymbol(MF, CalleeRecoverSym);
         // replace call to stack allocate
         BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
@@ -321,6 +344,74 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
       }
       Changed = true;
       break;
+    case MachineOperand::MO_Immediate:
+    {
+      // ret
+      auto MIB = BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(RetOpc));
+      // pop WorkReg 
+      BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(PopOpc))
+        .addReg(WorkReg);
+      // mov [rsp+RetValOffset], WorkReg
+      addRegOffset(BuildMI(*MBB, skipFilter(MBB, isCALL),  DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
+          .addReg(WorkReg);
+      // mov WorkReg, CalleeRecoverSym
+      BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovriOpc), WorkReg)
+        .addSym(CalleeRecoverSym);
+      // mov [rsp+CalleeOffset], WorkReg 
+      addRegOffset(BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovmrOpc)), StackPtr, true, CalleeOffset)
+        .addReg(WorkReg);
+      // mov WorkReg, Callee  
+      BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovriOpc), WorkReg)
+        .add(Callee);
+      // push WorkReg
+      BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(PushOpc))
+        .addReg(WorkReg);
+      // replace call to stack allocate
+      BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
+        .addReg(StackPtr)
+        .addImm(RetValOffset);
+
+      // set callee recover symbol after the ret
+      MIB.getInstr()->setPostInstrSymbol(MF, CalleeRecoverSym);
+      Changed = true;
+      break;
+    }
+    case MachineOperand::MO_GlobalAddress:
+    {
+      Changed = true;
+      // ret
+      auto MIB = BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(RetOpc));
+      // pop WorkReg 
+      BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(PopOpc))
+        .addReg(WorkReg);
+      // mov [rsp+RetValOffset], WorkReg
+      addRegOffset(BuildMI(*MBB, skipFilter(MBB, isCALL),  DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
+        .addReg(WorkReg);
+      // mov WorkReg, CalleeRecoverSym
+      BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovriOpc), WorkReg)
+        .addSym(CalleeRecoverSym);
+      // mov [rsp+CalleeOffset], WorkReg 
+      addRegOffset(BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovmrOpc)), StackPtr, true, CalleeOffset)
+        .addReg(WorkReg);
+      // lea WorkReg, Callee  
+      BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(LeaOpc), WorkReg)
+        .addReg(0)
+        .addImm(1)
+        .addReg(0)
+        .add(Callee)
+        .addReg(0);
+      // push WorkReg
+      BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(PushOpc))
+        .addReg(WorkReg);
+      // replace call to stack allocate
+      BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
+        .addReg(StackPtr)
+        .addImm(RetValOffset);
+
+      // set callee recover symbol after the ret
+      MIB.getInstr()->setPostInstrSymbol(MF, CalleeRecoverSym);
+      break;
+    }
     default:
       break;
   }
@@ -331,6 +422,7 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
 bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI) {
   bool Changed = false;
 
+  /*
   if (MI.getNumOperands() != 1)
     return Changed;
 
@@ -377,6 +469,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
     addRegOffset(BuildMI(*MBB, MBB->erase(MI), DL, TII->get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
     Changed = true;
   }
+  */
   
   return Changed;
 }

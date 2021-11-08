@@ -73,7 +73,8 @@ static inline void dump_type(const MachineOperand::MachineOperandType &Ty);
 // removes operands that are currently not needed
 static inline void filter_operand(MachineInstr &MI);
 
-MachineBasicBlock::iterator skipFilter(MachineBasicBlock *MBB, bool (*filt)(const MachineInstr&));
+// iterator to the desired Index
+MachineBasicBlock::instr_iterator skip(MachineBasicBlock *MBB, unsigned Index);
 
 namespace {
 class X86ROPObfuscatePass : public MachineFunctionPass {
@@ -97,10 +98,10 @@ private:
   bool isObfuscatable(const MachineInstr &MI) const;
     
   // obfuscate CALL instruction
-  bool ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI);
+  bool ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index);
 
   // obfuscate JMP instruction
-  bool ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI);
+  bool ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index);
 
   MachineRegisterInfo *MRI = nullptr;
   bool Is64Bit = false;
@@ -154,13 +155,13 @@ static inline void dump_type(const MachineOperand::MachineOperandType &Ty) {
       fprintf(stderr, "MO_MachineBasicBlock\n");
       break;
     case MachineOperand::MO_FrameIndex:
-      fprintf(stderr, "MO_MachineBasicBlock\n");
+      fprintf(stderr, "MO_FrameIndex\n");
       break;
     case MachineOperand::MO_ConstantPoolIndex:
       fprintf(stderr, "MO_ConstantPoolIndex\n");
       break;
     case MachineOperand::MO_TargetIndex:
-      fprintf(stderr, "MO_ConstantPoolIndex\n");
+      fprintf(stderr, "MO_TargetIndex\n");
       break;
     case MachineOperand::MO_JumpTableIndex:
       fprintf(stderr, "MO_JumpTableIndex\n");
@@ -199,7 +200,7 @@ static inline void dump_type(const MachineOperand::MachineOperandType &Ty) {
       fprintf(stderr, "MO_ShuffleMask\n");
       break;
     default:
-      fprintf(stderr, "Unknown Operand Type\n");
+      fprintf(stderr, "WTF?? Unknown Operand Type %d\n", (unsigned char)Ty);
       break;
   }
 }
@@ -230,14 +231,15 @@ static inline void filter_operand(MachineInstr &MI) {
   }
 }
 
-MachineBasicBlock::iterator skipFilter(MachineBasicBlock *MBB, bool (*filt)(const MachineInstr &)) {
-  auto I = MBB->instr_rbegin();
-  while (I!= MBB->instr_rend() && !filt(*I))
-    ++I;
-  return MachineBasicBlock::iterator(MachineBasicBlock::reverse_iterator(I));
+MachineBasicBlock::instr_iterator skip(MachineBasicBlock *MBB, unsigned Index) {
+  auto I = MBB->instr_begin();
+  unsigned Cur = 0;
+  while (I!= MBB->instr_end() && Cur != Index)
+    ++I, ++Cur;
+  return ++I;
 }
 
-bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI) {
+bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index) {
   bool Changed = false;
 
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
@@ -254,6 +256,7 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
   const unsigned RetValOffset = Is64Bit ? 0x10 : 0x8;
   const unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
 
+  assert(isCALL(MI) && "MI isn't call");
   filter_operand(MI);
 
   assert(MI.getNumOperands() > 0 && "filter_operand failed");
@@ -263,9 +266,25 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
   MCContext &Ctx = MF.getContext();
   MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
   MachineBasicBlock *MBB = MI.getParent();
+  MachineBasicBlock::instr_iterator Iter = skip(MBB, Index);
   DebugLoc DL = MI.getDebugLoc();
   MachineOperand &Callee = MI.getOperand(0);
-  Changed = true;
+  MachineOperand::MachineOperandType Ty = Callee.getType();
+
+  switch (Ty) {
+    case MachineOperand::MO_Register:
+    case MachineOperand::MO_Immediate:
+    case MachineOperand::MO_GlobalAddress:
+      Changed = true;
+      break;
+    default:
+      Changed = false;
+      return Changed;
+      break;
+  }
+
+  assert((Ty == MachineOperand::MO_Register || Ty == MachineOperand::MO_Immediate ||
+         Ty == MachineOperand::MO_GlobalAddress) && "Not Implemented");
   /*
    * sub rsp, RetValOffset 
    * push WorkReg
@@ -279,46 +298,36 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
    * Since we are using reverse_iterator, we need to build the instructions in the reverse direction.
    *
    */
-  // ret
-  auto MIB = BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(RetOpc));
-  // pop WorkReg 
-  BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(PopOpc))
-    .addReg(WorkReg);
-  // mov [rsp+RetValOffset], WorkReg
-  addRegOffset(BuildMI(*MBB, skipFilter(MBB, isCALL),  DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
-    .addReg(WorkReg);
-  // mov WorkReg, CalleeRecoverSym
-  BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovriOpc), WorkReg)
-    .addSym(CalleeRecoverSym);
-  // mov [rsp+CalleeOffset], WorkReg 
-  addRegOffset(BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovmrOpc)), StackPtr, true, CalleeOffset)
+
+  // push WorkReg
+  BuildMI(*MBB, Iter, DL, TII->get(PushOpc))
     .addReg(WorkReg);
 
   // WorkReg <- Callee
-  switch (Callee.getType()) {
+  switch (Ty) {
     case MachineOperand::MO_Register:
       // Register indirect call
       if (MI.getNumOperands() == 1) { 
         Register OpReg = Callee.getReg();
         // mov WorkReg, Callee  
-        BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovrrOpc), WorkReg)
+        BuildMI(*MBB, Iter, DL, TII->get(MovrrOpc), WorkReg)
           .addReg(OpReg);
       } else {
         // with offset
         // lea WorkReg, Callee
-        auto LeaMIB = BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovrmOpc), WorkReg);
+        auto LeaMIB = BuildMI(*MBB, Iter, DL, TII->get(MovrmOpc), WorkReg);
         for (unsigned i = 0; i < MI.getNumOperands(); i++)
           LeaMIB.add(MI.getOperand(i));
       }
       break;
     case MachineOperand::MO_Immediate:
       // mov WorkReg, Callee  
-      BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(MovriOpc), WorkReg)
+      BuildMI(*MBB, Iter, DL, TII->get(MovriOpc), WorkReg)
         .add(Callee);
       break;
     case MachineOperand::MO_GlobalAddress:
       // lea WorkReg, Callee  
-      BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(LeaOpc), WorkReg)
+      BuildMI(*MBB, Iter, DL, TII->get(LeaOpc), WorkReg)
         .addReg(0)
         .addImm(1)
         .addReg(0)
@@ -326,11 +335,26 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
         .addReg(0);
       break;
     default:
+      dump_type(Callee.getType());
+      assert(1 && "The operand doesn't implemented");
       break;
   }
-  // push WorkReg
-  BuildMI(*MBB, skipFilter(MBB, isCALL), DL, TII->get(PushOpc))
+  // mov [rsp+CalleeOffset], WorkReg 
+  addRegOffset(BuildMI(*MBB, Iter, DL, TII->get(MovmrOpc)), StackPtr, true, CalleeOffset)
     .addReg(WorkReg);
+  // mov WorkReg, CalleeRecoverSym
+  BuildMI(*MBB, Iter, DL, TII->get(MovriOpc), WorkReg)
+    .addSym(CalleeRecoverSym);
+  // mov [rsp+RetValOffset], WorkReg
+  addRegOffset(BuildMI(*MBB, Iter,  DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
+    .addReg(WorkReg);
+  // pop WorkReg 
+  BuildMI(*MBB, Iter, DL, TII->get(PopOpc))
+    .addReg(WorkReg);
+  // ret
+  auto MIB = BuildMI(*MBB, Iter, DL, TII->get(RetOpc));
+
+  // Callee will disappear if replace is not done last.
   // replace call to stack allocate
   BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
     .addReg(StackPtr)
@@ -342,7 +366,7 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
   return Changed;
 }
 
-bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI) {
+bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index) {
   bool Changed = false;
 
   if (MI.getNumOperands() != 1)
@@ -355,6 +379,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
   const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP32r;
   const unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
+  const unsigned SubOpc = Is64Bit ? X86::SUB64ri8 : X86::SUB32ri8;
   const unsigned MovmrOpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
   const unsigned RetOpc = Is64Bit ? X86::RETQ : X86::RETL;
   const Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
@@ -388,7 +413,9 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
 
     // replace `jmp` instruction with `lea` for allocate stack 
     // lea StackPtr, [StackPtr - RetValOffset]
-    addRegOffset(BuildMI(*MBB, MBB->erase(MI), DL, TII->get(LeaOpc), StackPtr), StackPtr, true, -RetValOffset);
+    BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
+      .addReg(StackPtr)
+      .addImm(RetValOffset);
     Changed = true;
   }
   
@@ -406,13 +433,14 @@ bool X86ROPObfuscatePass::runOnMachineFunction(MachineFunction &MF) {
 
   // Process all basic blocks.
   for (MachineBasicBlock &MBB : MF) {
-    for (MachineInstr &MI : MBB) {
-      if (!isRealInstruction(MI) || !isObfuscatable(MI))
+    unsigned Index = 0;
+    for (MachineBasicBlock::iterator MI = MBB.begin(), E = MBB.end(); MI != E; ++MI, ++Index) {
+      if (!isRealInstruction(*MI) || !isObfuscatable(*MI))
         continue;
-      if (isJMP(MI))
-        Changed |= ObfuscateJmpInst(MF, MI);
-      if (isCALL(MI))
-        Changed |= ObfuscateCallInst(MF, MI);
+      if (isJMP(*MI))
+        Changed |= ObfuscateJmpInst(MF, *MI, Index);
+      if (isCALL(*MI))
+        Changed |= ObfuscateCallInst(MF, *MI, Index);
     }
   }
 

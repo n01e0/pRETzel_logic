@@ -242,6 +242,10 @@ MachineBasicBlock::instr_iterator skip(MachineBasicBlock *MBB, unsigned Index) {
 bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index) {
   bool Changed = false;
 
+  // tail call
+  if (MI.isTerminator())
+    return Changed;
+
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
   const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP64r;
   const unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
@@ -368,6 +372,10 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
 
 bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index) {
   bool Changed = false;
+
+  // tail jmp
+  if (MI.isTerminator())
+    return Changed;
 
   if (MI.getNumOperands() != 1)
     return Changed;

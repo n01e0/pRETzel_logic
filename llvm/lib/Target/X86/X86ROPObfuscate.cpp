@@ -98,10 +98,10 @@ private:
   bool isObfuscatable(const MachineInstr &MI) const;
     
   // obfuscate CALL instruction
-  bool ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index);
+  bool ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index, bool isTail);
 
   // obfuscate JMP instruction
-  bool ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index);
+  bool ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index, bool isTail);
 
   MachineRegisterInfo *MRI = nullptr;
   bool Is64Bit = false;
@@ -239,11 +239,26 @@ MachineBasicBlock::instr_iterator skip(MachineBasicBlock *MBB, unsigned Index) {
   return ++I;
 }
 
-bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index) {
+bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index, bool isTail) {
   bool Changed = false;
 
+  assert(isCALL(MI) && "MI isn't call");
+  filter_operand(MI);
+
+  assert(MI.getNumOperands() > 0 && "filter_operand failed");
+    
+  auto SymName = ".callee_recover_" + MF.getName() + std::to_string(SymId++);
+
+  MCContext &Ctx = MF.getContext();
+  MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
+  MachineBasicBlock *MBB = MI.getParent();
+  DebugLoc DL = MI.getDebugLoc();
+  MachineOperand &Callee = MI.getOperand(0);
+  MachineOperand::MachineOperandType Ty = Callee.getType();
+  MachineBasicBlock::instr_iterator Iter = skip(MBB, Index);
+
   // tail call
-  if (MI.isTerminator())
+  if (isTail)
     return Changed;
 
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
@@ -259,21 +274,6 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
   const Register WorkReg = Is64Bit ? X86::RAX : X86::EAX;
   const unsigned RetValOffset = Is64Bit ? 0x10 : 0x8;
   const unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
-
-  assert(isCALL(MI) && "MI isn't call");
-  filter_operand(MI);
-
-  assert(MI.getNumOperands() > 0 && "filter_operand failed");
-    
-  auto SymName = ".callee_recover_" + MF.getName() + std::to_string(SymId++);
-
-  MCContext &Ctx = MF.getContext();
-  MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
-  MachineBasicBlock *MBB = MI.getParent();
-  MachineBasicBlock::instr_iterator Iter = skip(MBB, Index);
-  DebugLoc DL = MI.getDebugLoc();
-  MachineOperand &Callee = MI.getOperand(0);
-  MachineOperand::MachineOperandType Ty = Callee.getType();
 
   switch (Ty) {
     case MachineOperand::MO_Register:
@@ -370,12 +370,8 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
   return Changed;
 }
 
-bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index) {
+bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index, bool isTail) {
   bool Changed = false;
-
-  // tail jmp
-  if (MI.isTerminator())
-    return Changed;
 
   if (MI.getNumOperands() != 1)
     return Changed;
@@ -383,6 +379,10 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
   MachineBasicBlock *MBB = MI.getParent();
   DebugLoc DL = MI.getDebugLoc();
   MachineOperand &Operand = MI.getOperand(0);
+
+  // tail jmp
+  if (isTail)
+    return Changed;
 
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
   const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP32r;
@@ -439,16 +439,23 @@ bool X86ROPObfuscatePass::runOnMachineFunction(MachineFunction &MF) {
   Is64Bit = STI.is64Bit();
   TII = STI.getInstrInfo();
 
+  unsigned BasicBlockCount = MF.size();
+  unsigned BBIndex = 0;
   // Process all basic blocks.
   for (MachineBasicBlock &MBB : MF) {
+    BBIndex++;
+    unsigned InstrCount = MBB.size();
     unsigned Index = 0;
     for (MachineBasicBlock::iterator MI = MBB.begin(), E = MBB.end(); MI != E; ++MI, ++Index) {
       if (!isRealInstruction(*MI) || !isObfuscatable(*MI))
         continue;
+      // tail call/jmp 
+      bool isTail = (BBIndex == BasicBlockCount && Index == InstrCount-1);
+
       if (isJMP(*MI))
-        Changed |= ObfuscateJmpInst(MF, *MI, Index);
+        Changed |= ObfuscateJmpInst(MF, *MI, Index, isTail);
       if (isCALL(*MI))
-        Changed |= ObfuscateCallInst(MF, *MI, Index);
+        Changed |= ObfuscateCallInst(MF, *MI, Index, isTail);
     }
   }
 

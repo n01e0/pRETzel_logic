@@ -335,7 +335,11 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
       BuildMI(*MBB, Iter, DL, TII->get(MovriOpc), WorkReg)
         .add(Callee);
       break;
+    case MachineOperand::MO_ExternalSymbol:
     case MachineOperand::MO_GlobalAddress:
+    case MachineOperand::MO_BlockAddress:
+    case MachineOperand::MO_MCSymbol:
+      {
       // lea WorkReg, Callee  
       BuildMI(*MBB, Iter, DL, TII->get(LeaOpc), WorkReg)
         .addReg(0)
@@ -344,6 +348,7 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
         .add(Callee)
         .addReg(0);
       break;
+      }
     default:
       dump_type(Callee.getType());
       assert(1 && "The operand doesn't implemented");
@@ -434,13 +439,6 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
       Changed = true;
     }
   } else {
-    /*
-     * sub rsp, RetValOffset 
-     * push WorkReg
-     * lea WorkReg, Operand
-     *
-     *
-     */
     // push WorkReg
     BuildMI(&*MBB, DL, TII->get(PushOpc))
       .addReg(WorkReg)
@@ -467,7 +465,10 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
         BuildMI(&*MBB, DL, TII->get(MovriOpc), WorkReg)
           .add(Operand);
         break;
+      case MachineOperand::MO_ExternalSymbol:
       case MachineOperand::MO_GlobalAddress:
+      case MachineOperand::MO_BlockAddress:
+      case MachineOperand::MO_MCSymbol:
         // lea WorkReg, Operand
         BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)

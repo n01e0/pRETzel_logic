@@ -55,7 +55,7 @@ static cl::opt<bool>
 
 STATISTIC(NumObfuscated, "Number of ROP Obfuscated functions");
 
-// Returns true if machine function has 'rop_obfuscate' attribute
+// Returns true iff machine function has 'rop_obfuscate' attribute
 static inline bool hasROPAttribute(const MachineFunction &MF);
 
 // Returns true if the instruction is JMP
@@ -63,6 +63,9 @@ static inline bool isJMP(const MachineInstr &MI);
 
 // Returns true if the instruction is CALL
 static inline bool isCALL(const MachineInstr &MI);
+
+// Returns true if the instruction is tail call
+static inline bool isTAILCALL(const MachineInstr &MI);
 
 // Return true if the instruction is a non-meta, non-pseudo instruction.
 static inline bool isRealInstruction(const MachineInstr &MI);
@@ -121,12 +124,19 @@ static inline bool hasROPAttribute(const MachineFunction &MF) {
 }
 
 static inline bool isJMP(const MachineInstr &MI) {
-  return  MI.isBranch() &&
-          MI.isBarrier(); // is unconditional branch
+  return  (MI.isBarrier() && MI.isBranch() && MI.isTerminator()) || // Unconditional
+    (MI.isBranch() && MI.isTerminator() && MI.isBarrier() && MI.isIndirectBranch()) || // Indirect
+    isTAILCALL(MI); // Tail call
 }
 
 static inline bool isCALL(const MachineInstr &MI) {
-  return MI.isCall();
+  return MI.isCall() && !isTAILCALL(MI);
+}
+
+static inline bool isTAILCALL(const MachineInstr &MI) {
+  return MI.isCall() && MI.isReturn();
+  //return (MI.isTerminator() && MI.isReturn() && MI.isBarrier() && !MI.isCtrlDep) || // Tail call stuff
+  //(MI.isTerminator() && MI.isReturn() && MI.isBranch()); // Conditional tail calls
 }
 
 static inline bool isRealInstruction(const MachineInstr &MI) {
@@ -369,42 +379,109 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
 bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index) {
   bool Changed = false;
 
-  if (MI.getNumOperands() != 1)
-    return Changed;
+  filter_operand(MI);
 
   MachineBasicBlock *MBB = MI.getParent();
   DebugLoc DL = MI.getDebugLoc();
   MachineOperand &Operand = MI.getOperand(0);
+
+  MachineOperand::MachineOperandType Ty = Operand.getType();
 
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
   const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP32r;
   const unsigned LeaOpc = Is64Bit ? X86::LEA64r : X86::LEA32r;
   const unsigned SubOpc = Is64Bit ? X86::SUB64ri8 : X86::SUB32ri8;
   const unsigned MovmrOpc = Is64Bit ? X86::MOV64mr : X86::MOV32mr;
+  const unsigned MovrrOpc = Is64Bit ? X86::MOV64rr : X86::MOV32rr;
+  const unsigned MovrmOpc = Is64Bit ? X86::MOV64rm : X86::MOV32rm;
+  const unsigned MovriOpc = Is64Bit ? X86::MOV64ri32 : X86::MOV32ri;
   const unsigned RetOpc = Is64Bit ? X86::RETQ : X86::RETL;
   const Register StackPtr = Is64Bit ? X86::RSP : X86::ESP;
   const Register WorkReg = Is64Bit ? X86::RAX : X86::EAX;
   const unsigned RetValOffset = Is64Bit ? 8 : 4;
 
-  if (Operand.getType() == MachineOperand::MO_Register) {
-    BuildMI(*MBB, MBB->erase(MI), DL, TII->get(PushOpc), Operand.getReg());
-    BuildMI(&*MBB, DL, TII->get(RetOpc));
-    Changed = true;
+  if (MI.getNumOperands() == 1) {
+    if (Ty == MachineOperand::MO_Register) {
+      BuildMI(*MBB, MBB->erase(MI), DL, TII->get(PushOpc), Operand.getReg());
+      BuildMI(&*MBB, DL, TII->get(RetOpc));
+      Changed = true;
+    } else {
+      // push WorkReg
+      BuildMI(&*MBB, DL, TII->get(PushOpc))
+        .addReg(WorkReg)
+        .getInstr();
+      // lea WorkReg, Operand 
+      BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
+        .addReg(0)
+        .addImm(1)
+        .addReg(0)
+        .add(Operand)
+        .addReg(0);
+      // mov [StackPtr+RetValOffset], WorkReg
+      addRegOffset(BuildMI(&*MBB, DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
+        .addReg(WorkReg);
+      // pop WorkReg
+      BuildMI(&*MBB, DL, TII->get(PopOpc))
+        .addReg(WorkReg);
+      // ret
+      BuildMI(&*MBB, DL, TII->get(RetOpc));
+
+      // replace `jmp` instruction with `lea` for allocate stack 
+      // lea StackPtr, [StackPtr - RetValOffset]
+      BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
+        .addReg(StackPtr)
+        .addImm(RetValOffset);
+      Changed = true;
+    }
   } else {
+    /*
+     * sub rsp, RetValOffset 
+     * push WorkReg
+     * lea WorkReg, Operand
+     *
+     *
+     */
     // push WorkReg
     BuildMI(&*MBB, DL, TII->get(PushOpc))
       .addReg(WorkReg)
       .getInstr();
-    // lea WorkReg, Callee
-    BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
-      .addReg(0)
-      .addImm(1)
-      .addReg(0)
-      .add(Operand)
-      .addReg(0);
-    // mov [StackPtr+RetValOffset], WorkReg
-    addRegOffset(BuildMI(&*MBB, DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
-      .addReg(WorkReg);
+    // WorkReg <- Operand
+    switch (Ty) {
+      case MachineOperand::MO_Register:
+        // Register indirect call
+        if (MI.getNumOperands() == 1) { 
+          Register OpReg = Operand.getReg();
+          // mov WorkReg, Operand
+          BuildMI(&*MBB, DL, TII->get(MovrrOpc), WorkReg)
+            .addReg(OpReg);
+        } else {
+          // with offset
+          // lea WorkReg, Operand 
+          auto LeaMIB = BuildMI(&*MBB, DL, TII->get(MovrmOpc), WorkReg);
+          for (unsigned i = 0; i < MI.getNumOperands(); i++)
+            LeaMIB.add(MI.getOperand(i));
+        }
+        break;
+      case MachineOperand::MO_Immediate:
+        // mov WorkReg, Operand
+        BuildMI(&*MBB, DL, TII->get(MovriOpc), WorkReg)
+          .add(Operand);
+        break;
+      case MachineOperand::MO_GlobalAddress:
+        // lea WorkReg, Operand
+        BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
+          .addReg(0)
+          .addImm(1)
+          .addReg(0)
+          .add(Operand)
+          .addReg(0);
+        break;
+      default:
+        dump_type(Ty);
+        assert(1 && "The operand doesn't implemented");
+        break;
+    }
+
     // pop WorkReg
     BuildMI(&*MBB, DL, TII->get(PopOpc))
       .addReg(WorkReg);
@@ -418,7 +495,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
       .addImm(RetValOffset);
     Changed = true;
   }
-  
+
   return Changed;
 }
 

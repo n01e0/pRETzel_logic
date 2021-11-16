@@ -483,6 +483,9 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
         break;
     }
 
+    // mov [StackPtr+RetValOffset], WorkReg
+    addRegOffset(BuildMI(&*MBB, DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
+      .addReg(WorkReg);
     // pop WorkReg
     BuildMI(&*MBB, DL, TII->get(PopOpc))
       .addReg(WorkReg);

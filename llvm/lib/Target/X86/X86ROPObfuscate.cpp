@@ -101,7 +101,8 @@ private:
   bool isObfuscatable(const MachineInstr &MI) const;
     
   // obfuscate CALL instruction
-  bool ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index);
+  bool ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI,
+                         unsigned &Index);
 
   // obfuscate JMP instruction
   bool ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index);
@@ -124,9 +125,11 @@ static inline bool hasROPAttribute(const MachineFunction &MF) {
 }
 
 static inline bool isJMP(const MachineInstr &MI) {
-  return  (MI.isBarrier() && MI.isBranch() && MI.isTerminator()) || // Unconditional
-    (MI.isBranch() && MI.isTerminator() && MI.isBarrier() && MI.isIndirectBranch()) || // Indirect
-    isTAILCALL(MI); // Tail call
+  return (MI.isBarrier() && MI.isBranch() &&
+          MI.isTerminator()) || // Unconditional
+         (MI.isBranch() && MI.isTerminator() && MI.isBarrier() &&
+          MI.isIndirectBranch()) || // Indirect
+         isTAILCALL(MI);            // Tail call
 }
 
 static inline bool isCALL(const MachineInstr &MI) {
@@ -135,8 +138,9 @@ static inline bool isCALL(const MachineInstr &MI) {
 
 static inline bool isTAILCALL(const MachineInstr &MI) {
   return MI.isCall() && MI.isReturn();
-  //return (MI.isTerminator() && MI.isReturn() && MI.isBarrier() && !MI.isCtrlDep) || // Tail call stuff
-  //(MI.isTerminator() && MI.isReturn() && MI.isBranch()); // Conditional tail calls
+  // return (MI.isTerminator() && MI.isReturn() && MI.isBarrier() &&
+  // !MI.isCtrlDep) || // Tail call stuff (MI.isTerminator() && MI.isReturn() &&
+  //MI.isBranch()); // Conditional tail calls
 }
 
 static inline bool isRealInstruction(const MachineInstr &MI) {
@@ -244,19 +248,20 @@ static inline void filter_operand(MachineInstr &MI) {
 MachineBasicBlock::instr_iterator skip(MachineBasicBlock *MBB, unsigned Index) {
   auto I = MBB->instr_begin();
   unsigned Cur = 0;
-  while (I!= MBB->instr_end() && Cur != Index)
+  while (I != MBB->instr_end() && Cur != Index)
     ++I, ++Cur;
   return ++I;
 }
 
-bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index) {
+bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF,
+                                            MachineInstr &MI, unsigned &Index) {
   bool Changed = false;
 
   assert(isCALL(MI) && "MI isn't call");
   filter_operand(MI);
 
   assert(MI.getNumOperands() > 0 && "filter_operand failed");
-    
+
   auto SymName = ".callee_recover_" + MF.getName() + std::to_string(SymId++);
 
   MCContext &Ctx = MF.getContext();
@@ -282,21 +287,23 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
   const unsigned CalleeOffset = Is64Bit ? 0x8 : 0x4;
 
   switch (Ty) {
-    case MachineOperand::MO_Register:
-    case MachineOperand::MO_Immediate:
-    case MachineOperand::MO_GlobalAddress:
-      Changed = true;
-      break;
-    default:
-      Changed = false;
-      return Changed;
-      break;
+  case MachineOperand::MO_Register:
+  case MachineOperand::MO_Immediate:
+  case MachineOperand::MO_GlobalAddress:
+    Changed = true;
+    break;
+  default:
+    Changed = false;
+    return Changed;
+    break;
   }
 
-  assert((Ty == MachineOperand::MO_Register || Ty == MachineOperand::MO_Immediate ||
-         Ty == MachineOperand::MO_GlobalAddress) && "Not Implemented");
+  assert((Ty == MachineOperand::MO_Register ||
+          Ty == MachineOperand::MO_Immediate ||
+          Ty == MachineOperand::MO_GlobalAddress) &&
+         "Not Implemented");
   /*
-   * sub rsp, RetValOffset 
+   * sub rsp, RetValOffset
    * push WorkReg
    * mov WorkReg, Callee
    * mov [rsp+CalleeOffset], WorkReg
@@ -305,83 +312,82 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF, MachineInstr &M
    * pop WorkReg
    * ret
    *
-   * Since we are using reverse_iterator, we need to build the instructions in the reverse direction.
+   * Since we are using reverse_iterator, we need to build the instructions in
+   * the reverse direction.
    *
    */
 
   // push WorkReg
-  BuildMI(*MBB, Iter, DL, TII->get(PushOpc))
-    .addReg(WorkReg);
+  BuildMI(*MBB, Iter, DL, TII->get(PushOpc)).addReg(WorkReg);
 
   // WorkReg <- Callee
   switch (Ty) {
-    case MachineOperand::MO_Register:
-      // Register indirect call
-      if (MI.getNumOperands() == 1) { 
-        Register OpReg = Callee.getReg();
-        // mov WorkReg, Callee  
-        BuildMI(*MBB, Iter, DL, TII->get(MovrrOpc), WorkReg)
-          .addReg(OpReg);
-      } else {
-        // with offset
-        // lea WorkReg, Callee
-        auto LeaMIB = BuildMI(*MBB, Iter, DL, TII->get(MovrmOpc), WorkReg);
-        for (unsigned i = 0; i < MI.getNumOperands(); i++)
-          LeaMIB.add(MI.getOperand(i));
-      }
-      break;
-    case MachineOperand::MO_Immediate:
-      // mov WorkReg, Callee  
-      BuildMI(*MBB, Iter, DL, TII->get(MovriOpc), WorkReg)
-        .add(Callee);
-      break;
-    case MachineOperand::MO_ExternalSymbol:
-    case MachineOperand::MO_GlobalAddress:
-    case MachineOperand::MO_BlockAddress:
-    case MachineOperand::MO_MCSymbol:
-      {
-      // lea WorkReg, Callee  
-      BuildMI(*MBB, Iter, DL, TII->get(LeaOpc), WorkReg)
+  case MachineOperand::MO_Register:
+    // Register indirect call
+    if (MI.getNumOperands() == 1) {
+      Register OpReg = Callee.getReg();
+      // mov WorkReg, Callee
+      BuildMI(*MBB, Iter, DL, TII->get(MovrrOpc), WorkReg).addReg(OpReg);
+    } else {
+      // with offset
+      // lea WorkReg, Callee
+      auto LeaMIB = BuildMI(*MBB, Iter, DL, TII->get(MovrmOpc), WorkReg);
+      for (unsigned i = 0; i < MI.getNumOperands(); i++)
+        LeaMIB.add(MI.getOperand(i));
+    }
+    break;
+  case MachineOperand::MO_Immediate:
+    // mov WorkReg, Callee
+    BuildMI(*MBB, Iter, DL, TII->get(MovriOpc), WorkReg).add(Callee);
+    break;
+  case MachineOperand::MO_ExternalSymbol:
+  case MachineOperand::MO_GlobalAddress:
+  case MachineOperand::MO_BlockAddress:
+  case MachineOperand::MO_MCSymbol: {
+    // lea WorkReg, Callee
+    BuildMI(*MBB, Iter, DL, TII->get(LeaOpc), WorkReg)
         .addReg(0)
         .addImm(1)
         .addReg(0)
         .add(Callee)
         .addReg(0);
-      break;
-      }
+    break;
+  }
     default:
       dump_type(Callee.getType());
       assert(1 && "The operand doesn't implemented");
       break;
-  }
-  // mov [rsp+CalleeOffset], WorkReg 
-  addRegOffset(BuildMI(*MBB, Iter, DL, TII->get(MovmrOpc)), StackPtr, true, CalleeOffset)
-    .addReg(WorkReg);
-  // mov WorkReg, CalleeRecoverSym
-  BuildMI(*MBB, Iter, DL, TII->get(MovriOpc), WorkReg)
-    .addSym(CalleeRecoverSym);
-  // mov [rsp+RetValOffset], WorkReg
-  addRegOffset(BuildMI(*MBB, Iter,  DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
-    .addReg(WorkReg);
-  // pop WorkReg 
-  BuildMI(*MBB, Iter, DL, TII->get(PopOpc))
-    .addReg(WorkReg);
-  // ret
-  auto MIB = BuildMI(*MBB, Iter, DL, TII->get(RetOpc));
+    }
+    // mov [rsp+CalleeOffset], WorkReg
+    addRegOffset(BuildMI(*MBB, Iter, DL, TII->get(MovmrOpc)), StackPtr, true,
+                 CalleeOffset)
+        .addReg(WorkReg);
+    // mov WorkReg, CalleeRecoverSym
+    BuildMI(*MBB, Iter, DL, TII->get(MovriOpc), WorkReg)
+        .addSym(CalleeRecoverSym);
+    // mov [rsp+RetValOffset], WorkReg
+    addRegOffset(BuildMI(*MBB, Iter, DL, TII->get(MovmrOpc)), StackPtr, true,
+                 RetValOffset)
+        .addReg(WorkReg);
+    // pop WorkReg
+    BuildMI(*MBB, Iter, DL, TII->get(PopOpc)).addReg(WorkReg);
+    // ret
+    auto MIB = BuildMI(*MBB, Iter, DL, TII->get(RetOpc));
 
-  // Callee will disappear if replace is not done last.
-  // replace call to stack allocate
-  BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
-    .addReg(StackPtr)
-    .addImm(RetValOffset);
+    // Callee will disappear if replace is not done last.
+    // replace call to stack allocate
+    BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
+        .addReg(StackPtr)
+        .addImm(RetValOffset);
 
-  // set callee recover symbol after the ret
-  MIB.getInstr()->setPostInstrSymbol(MF, CalleeRecoverSym);
+    // set callee recover symbol after the ret
+    MIB.getInstr()->setPostInstrSymbol(MF, CalleeRecoverSym);
 
-  return Changed;
+    return Changed;
 }
 
-bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index) {
+bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF,
+                                           MachineInstr &MI, unsigned &Index) {
   bool Changed = false;
 
   filter_operand(MI);
@@ -412,30 +418,28 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
       Changed = true;
     } else {
       // push WorkReg
-      BuildMI(&*MBB, DL, TII->get(PushOpc))
-        .addReg(WorkReg)
-        .getInstr();
-      // lea WorkReg, Operand 
+      BuildMI(&*MBB, DL, TII->get(PushOpc)).addReg(WorkReg).getInstr();
+      // lea WorkReg, Operand
       BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
-        .addReg(0)
-        .addImm(1)
-        .addReg(0)
-        .add(Operand)
-        .addReg(0);
+          .addReg(0)
+          .addImm(1)
+          .addReg(0)
+          .add(Operand)
+          .addReg(0);
       // mov [StackPtr+RetValOffset], WorkReg
-      addRegOffset(BuildMI(&*MBB, DL, TII->get(MovmrOpc)), StackPtr, true, RetValOffset)
-        .addReg(WorkReg);
+      addRegOffset(BuildMI(&*MBB, DL, TII->get(MovmrOpc)), StackPtr, true,
+                   RetValOffset)
+          .addReg(WorkReg);
       // pop WorkReg
-      BuildMI(&*MBB, DL, TII->get(PopOpc))
-        .addReg(WorkReg);
+      BuildMI(&*MBB, DL, TII->get(PopOpc)).addReg(WorkReg);
       // ret
       BuildMI(&*MBB, DL, TII->get(RetOpc));
 
-      // replace `jmp` instruction with `lea` for allocate stack 
+      // replace `jmp` instruction with `lea` for allocate stack
       // lea StackPtr, [StackPtr - RetValOffset]
       BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
-        .addReg(StackPtr)
-        .addImm(RetValOffset);
+          .addReg(StackPtr)
+          .addImm(RetValOffset);
       Changed = true;
     }
   } else {
@@ -445,42 +449,40 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
       .getInstr();
     // WorkReg <- Operand
     switch (Ty) {
-      case MachineOperand::MO_Register:
-        // Register indirect call
-        if (MI.getNumOperands() == 1) { 
-          Register OpReg = Operand.getReg();
-          // mov WorkReg, Operand
-          BuildMI(&*MBB, DL, TII->get(MovrrOpc), WorkReg)
-            .addReg(OpReg);
-        } else {
-          // with offset
-          // lea WorkReg, Operand 
-          auto LeaMIB = BuildMI(&*MBB, DL, TII->get(MovrmOpc), WorkReg);
-          for (unsigned i = 0; i < MI.getNumOperands(); i++)
-            LeaMIB.add(MI.getOperand(i));
-        }
-        break;
-      case MachineOperand::MO_Immediate:
+    case MachineOperand::MO_Register:
+      // Register indirect call
+      if (MI.getNumOperands() == 1) {
+        Register OpReg = Operand.getReg();
         // mov WorkReg, Operand
-        BuildMI(&*MBB, DL, TII->get(MovriOpc), WorkReg)
-          .add(Operand);
-        break;
-      case MachineOperand::MO_ExternalSymbol:
-      case MachineOperand::MO_GlobalAddress:
-      case MachineOperand::MO_BlockAddress:
-      case MachineOperand::MO_MCSymbol:
+        BuildMI(&*MBB, DL, TII->get(MovrrOpc), WorkReg).addReg(OpReg);
+      } else {
+        // with offset
         // lea WorkReg, Operand
-        BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
+        auto LeaMIB = BuildMI(&*MBB, DL, TII->get(MovrmOpc), WorkReg);
+        for (unsigned i = 0; i < MI.getNumOperands(); i++)
+          LeaMIB.add(MI.getOperand(i));
+      }
+      break;
+    case MachineOperand::MO_Immediate:
+      // mov WorkReg, Operand
+      BuildMI(&*MBB, DL, TII->get(MovriOpc), WorkReg).add(Operand);
+      break;
+    case MachineOperand::MO_ExternalSymbol:
+    case MachineOperand::MO_GlobalAddress:
+    case MachineOperand::MO_BlockAddress:
+    case MachineOperand::MO_MCSymbol:
+      // lea WorkReg, Operand
+      BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)
           .addImm(1)
           .addReg(0)
           .add(Operand)
           .addReg(0);
-        break;
-      default:
-        dump_type(Ty);
-        assert(1 && "The operand doesn't implemented");
-        break;
+      break;
+    default:
+      dump_type(Ty);
+      assert(1 && "The operand doesn't implemented");
+      break;
     }
 
     // mov [StackPtr+RetValOffset], WorkReg
@@ -495,8 +497,8 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI
     // replace `jmp` instruction with `lea` for allocate stack 
     // lea StackPtr, [StackPtr - RetValOffset]
     BuildMI(*MBB, MBB->erase(MI), DL, TII->get(SubOpc), StackPtr)
-      .addReg(StackPtr)
-      .addImm(RetValOffset);
+        .addReg(StackPtr)
+        .addImm(RetValOffset);
     Changed = true;
   }
 
@@ -515,7 +517,8 @@ bool X86ROPObfuscatePass::runOnMachineFunction(MachineFunction &MF) {
   // Process all basic blocks.
   for (MachineBasicBlock &MBB : MF) {
     unsigned Index = 0;
-    for (MachineBasicBlock::iterator MI = MBB.begin(), E = MBB.end(); MI != E; ++MI, ++Index) {
+    for (MachineBasicBlock::iterator MI = MBB.begin(), E = MBB.end(); MI != E;
+         ++MI, ++Index) {
       if (!isRealInstruction(*MI) || !isObfuscatable(*MI))
         continue;
       if (isJMP(*MI))

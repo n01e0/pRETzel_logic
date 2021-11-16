@@ -53,7 +53,8 @@ static cl::opt<bool>
           cl::init(false)
   );
 
-STATISTIC(NumObfuscated, "Number of ROP Obfuscated functions");
+STATISTIC(NumObfuscatedCalls, "Number of ROP Obfuscated call instructions");
+STATISTIC(NumObfuscatedJumps, "Number of ROP Obfuscated jmp instructions");
 
 // Returns true iff machine function has 'rop_obfuscate' attribute
 static inline bool hasROPAttribute(const MachineFunction &MF);
@@ -315,6 +316,7 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF,
   // set callee recover symbol after the ret
   MIB.getInstr()->setPostInstrSymbol(MF, CalleeRecoverSym);
 
+  ++NumObfuscatedCalls;
   return Changed;
 }
 
@@ -432,6 +434,8 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF,
         .addImm(RetValOffset);
     Changed = true;
   }
+
+  ++NumObfuscatedJumps;
 
   return Changed;
 }

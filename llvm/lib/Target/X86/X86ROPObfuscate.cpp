@@ -127,7 +127,7 @@ static inline bool isJMP(const MachineInstr &MI) {
           MI.isTerminator()) || // Unconditional
          (MI.isBranch() && MI.isTerminator() && MI.isBarrier() &&
           MI.isIndirectBranch()) || // Indirect
-         isTAILCALL(MI);            // Tail call
+         isTAILCALL(MI);            // Tail call is jmp
 }
 
 static inline bool isCALL(const MachineInstr &MI) {
@@ -136,9 +136,6 @@ static inline bool isCALL(const MachineInstr &MI) {
 
 static inline bool isTAILCALL(const MachineInstr &MI) {
   return MI.isCall() && MI.isReturn();
-  // return (MI.isTerminator() && MI.isReturn() && MI.isBarrier() &&
-  // !MI.isCtrlDep) || // Tail call stuff (MI.isTerminator() && MI.isReturn() &&
-  // MI.isBranch()); // Conditional tail calls
 }
 
 static inline bool isRealInstruction(const MachineInstr &MI) {
@@ -196,10 +193,10 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF,
   MCContext &Ctx = MF.getContext();
   MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
   MachineBasicBlock *MBB = MI.getParent();
+  MachineBasicBlock::instr_iterator Iter = skip(MBB, Index);
   DebugLoc DL = MI.getDebugLoc();
   MachineOperand &Callee = MI.getOperand(0);
   MachineOperand::MachineOperandType Ty = Callee.getType();
-  MachineBasicBlock::instr_iterator Iter = skip(MBB, Index);
 
   const unsigned PushOpc = Is64Bit ? X86::PUSH64r : X86::PUSH32r;
   const unsigned PopOpc = Is64Bit ? X86::POP64r : X86::POP64r;
@@ -248,8 +245,24 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF,
    * ret
    * :CalleeRecoverSym
    *
-   * Since we are using reverse_iterator, we need to build the instructions in
-   * the reverse direction.
+   * First, make stack look like this
+   *
+   * +------stack------+
+   * |     WorkReg     |
+   * +-----------------+
+   * |     Callee      |
+   * +-----------------+
+   * | CalleeRecoverSym|
+   * +-----------------+
+   *
+   * Then, the registers that had been saved for the work are returned, and the ROP is started by ret.
+   *
+   * +------stack------+
+   * |     Callee      |
+   * +-----------------+
+   * | CalleeRecoverSym|
+   * +-----------------+
+   *
    *
    */
 
@@ -352,7 +365,7 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF,
       Changed = true;
     } else {
       // push WorkReg
-      BuildMI(&*MBB, DL, TII->get(PushOpc)).addReg(WorkReg).getInstr();
+      BuildMI(&*MBB, DL, TII->get(PushOpc)).addReg(WorkReg);
       // lea WorkReg, Operand
       BuildMI(&*MBB, DL, TII->get(LeaOpc), WorkReg)
           .addReg(0)

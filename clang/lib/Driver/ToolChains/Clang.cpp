@@ -2154,6 +2154,7 @@ void Clang::AddX86TargetArgs(const ArgList &Args,
     CmdArgs.push_back("-disable-red-zone");
     CmdArgs.push_back("-rop-obfuscate");
     CmdArgs.push_back("-fno-plt");
+    CmdArgs.push_back("-O1");
   }
 
   if (!Args.hasFlag(options::OPT_mtls_direct_seg_refs,

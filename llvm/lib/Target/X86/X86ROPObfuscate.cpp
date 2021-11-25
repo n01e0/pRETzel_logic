@@ -186,6 +186,10 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF,
   assert(isCALL(MI) && "MI isn't call");
   filter_operand(MI);
 
+  Function &F = MF.getFunction();
+  if (F.isIntrinsic())
+    F.addFnAttr(Attribute::NonLazyBind);
+
   assert(MI.getNumOperands() > 0 && "filter_operand failed");
 
   auto SymName = ".callee_recover_" + MF.getName() + std::to_string(SymId++);

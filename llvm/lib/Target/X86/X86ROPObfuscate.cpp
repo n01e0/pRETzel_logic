@@ -195,8 +195,9 @@ static inline void filter_operand(MachineInstr &MI) {
 
 MachineBasicBlock::instr_iterator skip(MachineBasicBlock *MBB, unsigned Index) {
   auto I = MBB->instr_begin();
+  auto E = MBB->instr_end();
   unsigned Cur = 0;
-  while (I != MBB->instr_end() && Cur != Index)
+  while (I != E && Cur != Index)
     ++I, ++Cur;
   return ++I;
 }

@@ -101,6 +101,8 @@ private:
 
   // obfuscate B instruction
   bool ObfuscateBInst(MachineFunction &MF, MachineInstr &MI, const unsigned Index);
+  // obfuscate BL instruction
+  bool ObfuscateBlInst(MachineFunction &MF, MachineInstr &MI, const unsigned Index);
 
   const TargetInstrInfo *TII = nullptr;
   const MachineRegisterInfo *MRI = nullptr;
@@ -135,6 +137,12 @@ static inline void filter_operand(MachineInstr &MI) {
       case MachineOperand::MO_ShuffleMask:
         MI.RemoveOperand(Idx);
         break;
+      case MachineOperand::MO_Register:
+        if (Op.isDef() || Op.isImplicit() || Op.isDead())
+          MI.RemoveOperand(Idx);
+        else
+          ++Idx;
+        break;
       default:
         ++Idx;
         continue;
@@ -154,6 +162,7 @@ MachineBasicBlock::instr_iterator skip_iterator(MachineBasicBlock *MBB, const un
 bool AArch64ROPObfuscate::isObfuscatable(const MachineInstr &MI) const {
   switch (MI.getOpcode()) {
     case AArch64::B:
+    case AArch64::BL:
       return true;
     default:
       return false;
@@ -164,7 +173,6 @@ bool AArch64ROPObfuscate::ObfuscateBInst(MachineFunction &MF, MachineInstr &MI, 
   bool Changed = false;
 
   assert(MI.getOpcode() == AArch64::B && "MI isn't b");
-  filter_operand(MI);
 
   assert(MI.getNumOperands() == 1 && "too meny operands");
 
@@ -193,7 +201,7 @@ bool AArch64ROPObfuscate::ObfuscateBInst(MachineFunction &MF, MachineInstr &MI, 
   const unsigned LrOffset = 8 / 8;
 
   /* # how impl
-   * ## transformation
+   * ## b transformation
    * ### default
    *   b %label
    * ~ snip ~
@@ -275,6 +283,81 @@ bool AArch64ROPObfuscate::ObfuscateBInst(MachineFunction &MF, MachineInstr &MI, 
   return Changed;
 }
 
+bool AArch64ROPObfuscate::ObfuscateBlInst(MachineFunction &MF, MachineInstr &MI, const unsigned Index) {
+  bool Changed = false;
+
+  assert(MI.getOpcode() == AArch64::BL && "MI isn't bl");
+  filter_operand(MI);
+
+  MachineOperand &Callee = MI.getOperand(0);
+
+  auto CalleeSymName = Callee.getGlobal()->getGlobalIdentifier();
+  auto DestSymName = std::string("rop_") + CalleeSymName;
+  auto RecoverSymName = ".callee_recover_" + MF.getName() + std::to_string(SymId++);
+
+  MCContext &Ctx = MF.getContext();
+  MCSymbol *CalleeSym = Ctx.lookupSymbol(CalleeSymName);
+
+  if (CalleeSym == nullptr || CalleeSym->isUndefined()) {
+    return Changed;
+  }
+
+
+  MCSymbol *DestSym = Ctx.getOrCreateSymbol(DestSymName);
+  MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(RecoverSymName);
+
+  MachineBasicBlock *MBB = MI.getParent();
+  MachineBasicBlock::instr_iterator Iter = skip_iterator(MBB, Index);
+  DebugLoc DL = MI.getDebugLoc();
+
+  const unsigned SubOpc = AArch64::SUBXri;
+  const unsigned AddOpc = AArch64::ADDXri;
+  const unsigned StrOpc = AArch64::STRXui;
+  const unsigned AdrOpc = AArch64::ADR;
+  const unsigned RetOpc = AArch64::RET;
+  const unsigned LdrOpc = AArch64::LDRXui;
+
+  const Register Sp = AArch64::SP;
+  const Register Lr = AArch64::LR;
+  const Register X0 = AArch64::X0;
+
+  /* # how impl
+   * ## bl transformation
+   * ### default
+   *    bl func
+   *  ~snip~
+   *  func:
+   *    code
+   *    
+   *  ### obfuscated
+   *    sub sp, sp, #16
+   *    str x0, [sp, #8]
+   *    adr x0, %recover
+   *    str x0, [sp, #16]
+   *    adr x30, %func_rop
+   *    ldr x0, [sp, #8]
+   *    ret
+   *  recover:
+   *  ~snip~
+   *  func:
+   *    sub sp, sp, #16
+   *    str x30, [sp, #16]
+   *  func_rop:
+   *    ldr x30, [sp, #16]
+   *    code
+   */
+
+  // str x0, [sp, #8]
+//  BuildMI(*MBB, Iter, DL, TII->get(StrOpc))
+//    .addUse(X0)
+//    .addUse(Sp)
+//    .addUse(8/8);
+
+  // adr, x0, %recover
+
+  return Changed;
+}
+
 bool AArch64ROPObfuscate::runOnMachineFunction(MachineFunction &MF) {
   LLVM_DEBUG(dbgs() << "********** AArch64 ROP Obfuscate **********\n"
                     << "********** Function: " << MF.getName() << '\n');
@@ -294,6 +377,9 @@ bool AArch64ROPObfuscate::runOnMachineFunction(MachineFunction &MF) {
         switch ((*MI).getOpcode()) {
           case AArch64::B:
             Changed |= ObfuscateBInst(MF, *MI, Index);
+            break;
+          case AArch64::BL:
+            Changed |= ObfuscateBlInst(MF, *MI, Index);
             break;
           default:
             break;

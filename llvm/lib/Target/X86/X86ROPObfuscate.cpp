@@ -477,6 +477,9 @@ bool X86ROPObfuscatePass::ObfuscateJmpInst(MachineFunction &MF,
 }
 
 bool X86ROPObfuscatePass::runOnMachineFunction(MachineFunction &MF) {
+  LLVM_DEBUG(dbgs() << "********** X86 ROP Obfuscate **********\n"
+                    << "********** Function: " << MF.getName() << '\n');
+
   bool Changed = false;
   if (DisableX86ROPObfuscate || !hasROPAttribute(MF))
       return Changed;

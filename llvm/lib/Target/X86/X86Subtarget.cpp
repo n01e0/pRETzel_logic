@@ -203,8 +203,9 @@ X86Subtarget::classifyGlobalFunctionReference(const GlobalValue *GV,
       return X86II::MO_GOTPCREL;
     // If PLT must be avoided then the call should be via GOTPCREL.
     if (((F && F->hasFnAttribute(Attribute::NonLazyBind)) ||
-         ((!F || (F && F->isIntrinsic())) && M.getRtLibUseGOT() &&
-        is64Bit())))
+         ((!F || (F && F->isIntrinsic())) && M.getRtLibUseGOT())) && 
+          is64Bit())
+ 
        return X86II::MO_GOTPCREL;
     // Reference ExternalSymbol directly in static relocation model.
     if (!is64Bit() && !GV && TM.getRelocationModel() == Reloc::Static)

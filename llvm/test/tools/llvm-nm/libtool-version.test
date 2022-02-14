@@ -5,4 +5,4 @@
 RUN: llvm-nm -V | FileCheck %s
 RUN: llvm-nm --version | FileCheck %s
 CHECK: GNU
-CHECK: LLVM version
+CHECK: pRETzel_logic version

@@ -213,6 +213,9 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAArch64Target() {
   initializeAArch64StackTaggingPass(*PR);
   initializeAArch64StackTaggingPreRAPass(*PR);
   initializeAArch64LowerHomogeneousPrologEpilogPass(*PR);
+
+  // ROP
+  initializeAArch64ROPObfuscatePass(*PR);
 }
 
 //===----------------------------------------------------------------------===//
@@ -757,6 +760,9 @@ void AArch64PassConfig::addPreEmitPass2() {
   // SVE bundles move prefixes with destructive operations. BLR_RVMARKER pseudo
   // instructions are lowered to bundles as well.
   addPass(createUnpackMachineBundles(nullptr));
+
+  // ROP Obfuscate
+  addPass(createAArch64ROPObfuscatePass());
 }
 
 yaml::MachineFunctionInfo *

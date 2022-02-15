@@ -54,6 +54,9 @@ FunctionPass *createAArch64BranchTargetsPass();
 
 FunctionPass *createAArch64CleanupLocalDynamicTLSPass();
 
+// ROP
+FunctionPass *createAArch64ROPObfuscatePass();
+
 FunctionPass *createAArch64CollectLOHPass();
 ModulePass *createSVEIntrinsicOptsPass();
 InstructionSelector *
@@ -97,6 +100,9 @@ void initializeLDTLSCleanupPass(PassRegistry&);
 void initializeSVEIntrinsicOptsPass(PassRegistry&);
 void initializeAArch64StackTaggingPass(PassRegistry&);
 void initializeAArch64StackTaggingPreRAPass(PassRegistry&);
+
+// ROP
+void initializeAArch64ROPObfuscatePass(PassRegistry&);
 } // end namespace llvm
 
 #endif

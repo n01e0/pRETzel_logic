@@ -303,18 +303,16 @@ bool AArch64ROPObfuscate::ObfuscateBlInst(MachineFunction &MF, MachineInstr &MI,
 
   MachineOperand &Callee = MI.getOperand(0);
 
-  static std::string CalleeSymName = Callee.getGlobal()->getGlobalIdentifier();
+  std::string CalleeSymName = Callee.getGlobal()->getGlobalIdentifier();
   auto DestSymName = std::string(".rop_") + CalleeSymName;
   auto RecoverSymName = ".callee_recover_" + MF.getName().str() + std::to_string(SymId++);
 
   MCContext &Ctx = MF.getContext();
-  MCSymbol *CalleeSym = Ctx.lookupSymbol(CalleeSymName);
 
-  if (CalleeSym == nullptr || CalleeSym->isUndefined()) {
-    return Changed;
-  }
+  MCSymbol *DestSym = Ctx.lookupSymbol(DestSymName);
+  if (DestSym == nullptr)
+      return Changed;
 
-  MCSymbol *DestSym = Ctx.getOrCreateSymbol(DestSymName);
   MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(RecoverSymName);
 
   MachineBasicBlock *MBB = MI.getParent();
@@ -351,11 +349,11 @@ bool AArch64ROPObfuscate::ObfuscateBlInst(MachineFunction &MF, MachineInstr &MI,
    *  ~snip~
    */
 
-  // str x0, [sp, #8]
+  // str x0, [sp, #0]
   BuildMI(*MBB, Iter, DL, TII->get(StrOpc))
     .addUse(X0)
     .addUse(Sp)
-    .addImm(8/8);
+    .addImm(0);
 
   // adr, x0, %recover
   BuildMI(*MBB, Iter, DL, TII->get(AdrOpc), X0)
@@ -365,7 +363,7 @@ bool AArch64ROPObfuscate::ObfuscateBlInst(MachineFunction &MF, MachineInstr &MI,
   BuildMI(*MBB, Iter, DL, TII->get(StrOpc))
     .addUse(X0)
     .addUse(Sp)
-    .addImm(16/8);
+    .addImm(8/8);
 
   // adr x30, %func_rop
   BuildMI(*MBB, Iter, DL, TII->get(AdrOpc), Lr)
@@ -375,7 +373,7 @@ bool AArch64ROPObfuscate::ObfuscateBlInst(MachineFunction &MF, MachineInstr &MI,
   BuildMI(*MBB, Iter, DL, TII->get(LdrOpc))
     .addDef(X0)
     .addUse(Sp)
-    .addImm(8);
+    .addImm(0);
 
   // ret
   auto MIB = BuildMI(*MBB, Iter, DL, TII->get(RetOpc))
@@ -401,7 +399,8 @@ bool AArch64ROPObfuscate::ObfuscateEpilogue(MachineFunction &MF) {
       return false;
   DebugLoc DL = DebugLoc();
   MCContext &Ctx = MF.getContext();
-  MachineBasicBlock *MBB = MF.getBlockNumbered(0);
+  MachineBasicBlock &MBB = MF.front();
+  MachineBasicBlock::iterator MBBI = MBB.begin();
   const unsigned SubOpc = AArch64::SUBXri;
   const unsigned AddOpc = AArch64::ADDXri;
   const unsigned StrOpc = AArch64::STRXui;
@@ -415,31 +414,31 @@ bool AArch64ROPObfuscate::ObfuscateEpilogue(MachineFunction &MF) {
 
   // func:
   //   sub sp, sp, #16
-  BuildMI(MBB, DL, TII->get(SubOpc), Sp)
+  BuildMI(MBB, MBBI, DL, TII->get(SubOpc), Sp)
       .addReg(Sp)
       .addImm(16)
       .addImm(0);
 
-  //   str x30, [sp, #16]
-  auto MIB = BuildMI(MBB, DL, TII->get(StrOpc)) 
+  //   str x30, [sp, #8]
+  auto MIB = BuildMI(MBB, MBBI, DL, TII->get(StrOpc)) 
       .addDef(Lr)
       .addUse(Sp)
-      .addImm(16/8);
+      .addImm(8/8);
 
   // .rop_func:
   MIB.getInstr()->setPostInstrSymbol(MF, DestSym);
 
-  //   ldr x30, [sp, #16]
-  BuildMI(MBB, DL, TII->get(LdrOpc))
+  //   ldr x30, [sp, #8]
+  BuildMI(MBB, MBBI, DL, TII->get(LdrOpc))
       .addDef(Lr)
       .addUse(Sp)
-      .addImm(16/8);
+      .addImm(8/8);
 
   //   add sp, sp, #16
-  BuildMI(MBB, DL, TII->get(AddOpc), Sp)
+  BuildMI(MBB, MBBI, DL, TII->get(AddOpc), Sp)
       .addReg(Sp)
       .addImm(16)
-      .addImm(16);
+      .addImm(0);
 
   return true;
 }

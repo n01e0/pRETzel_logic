@@ -127,10 +127,8 @@ private:
   // obfuscate JMP instruction
   bool ObfuscateJmpInst(MachineFunction &MF, MachineInstr &MI, unsigned &Index);
 
-  MachineRegisterInfo *MRI = nullptr;
   bool Is64Bit = false;
   const X86InstrInfo *TII = nullptr;
-  const X86RegisterInfo *TRI = nullptr;
   unsigned SymId = 0;
 };
 }
@@ -211,7 +209,7 @@ bool X86ROPObfuscatePass::ObfuscateCallInst(MachineFunction &MF,
 
   assert(MI.getNumOperands() > 0 && "filter_operand failed");
 
-  auto SymName = ".callee_recover_" + MF.getName() + std::to_string(SymId++);
+  auto SymName = ".callee_recover_" + MF.getName().str() + std::to_string(SymId++);
 
   MCContext &Ctx = MF.getContext();
   MCSymbol *CalleeRecoverSym = Ctx.getOrCreateSymbol(SymName);
